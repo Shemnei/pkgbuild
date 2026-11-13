@@ -1,0 +1,27 @@
+pkgname = "opencode-local"
+pkgver = "2.2.7-3"
+build_packages = ["bun-1.4.4-1-x86_64"]
+
+[[exceptions]]
+diagnostic = "opencode-local W: ELF file ('usr/bin/opencode') lacks FULL RELRO, check LDFLAGS."
+reason = "Accepted upstream-runtime limitation: the executable embeds Arch Bun 1.4.4, whose ELF lacks FULL RELRO. JavaScript build flags cannot relink it. Retain normal makepkg flags; rebuild when Arch Bun gains this hardening."
+
+[[exceptions]]
+diagnostic = "opencode-local W: ELF file ('usr/bin/opencode') lacks PIE."
+reason = "Accepted upstream-runtime limitation: Arch Bun 1.4.4 is ET_EXEC, not PIE. The compiled application's ELF layout follows that runtime. A separate downstream Bun toolchain is intentionally not maintained."
+
+[[exceptions]]
+diagnostic = "opencode-local W: Unused shared library '/usr/lib64/ld-linux-x86-64.so.2' by file ('usr/bin/opencode')"
+reason = "Arch Bun's ELF has both a PT_INTERP entry and a DT_NEEDED entry for the glibc loader. The loader belongs to the required glibc package; it is not an extra packaged library to remove."
+
+[[exceptions]]
+diagnostic = "opencode-local W: Dependency included, but may not be needed ('gcc-libs')"
+reason = "Bun embeds native modules beyond namcap's outer-ELF analysis. The Linux/glibc Parcel watcher and terminal addon require libstdc++.so.6 and libgcc_s.so.1, verified with readelf on the pinned installed modules."
+
+[[exceptions]]
+diagnostic = "opencode-local W: Dependency included, but may not be needed ('ripgrep')"
+reason = "The patched RipgrepBinary service resolves /usr/bin/rg exclusively. This is a subprocess dependency, not an outer-ELF DT_NEEDED library."
+
+[[exceptions]]
+diagnostic = "opencode-local W: Dependency included, but may not be needed ('git')"
+reason = "Git is invoked as a subprocess for repository operations. ELF dependency analysis cannot discover that runtime dependency."

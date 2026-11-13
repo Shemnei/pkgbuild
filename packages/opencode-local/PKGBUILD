@@ -1,0 +1,76 @@
+# Maintainer: Local package maintainers
+# shellcheck disable=SC2034,SC2154
+
+pkgname=opencode-local
+pkgver=2.2.7
+pkgrel=3
+pkgdesc='OpenCode V2 CLI/TUI and server, managed by pacman without remote reporting'
+arch=('x86_64')
+url='https://github.com/anomalyco/opencode'
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'icu' 'ripgrep' 'git')
+makedepends=('bun>=1.4.4' 'python')
+provides=("opencode=$pkgver")
+conflicts=('opencode' 'opencode-bin' 'opencode-beta')
+options=('!strip' '!debug')
+source=(
+  "opencode-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+  'prepare.py'
+  'check.py'
+  'policy.test.mjs'
+  'smoke.py'
+)
+sha256sums=(
+  '493e29d872f1cd9604ef3de609f0278e093c0f8066719e4166efc6544d16f34d'
+  'e89b985d60806c1d629443feb9a9bdad987b95a57d3cc6edd7d0c8c22e2abdb6'
+  '3fd66fa519273cfcbec761bae7e202e1497dc4191a77d228453dc1df2c94d2a4'
+  'f34b2cb9580ce00d0944a22218f9213e10bfbc28e3c16aa88e20fe464adac3cd'
+  '89899cb0e1a4d42448b6fbdcaa3951dede69fc6772d0f389341fa473521de0df'
+)
+
+prepare() {
+  # Prefer Arch-managed tools over user runtime-manager shims, including in children.
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/opencode-$pkgver" || return
+  python "$srcdir/prepare.py" "$PWD"
+  export DO_NOT_TRACK=1 BUN_CONFIG_NO_TELEMETRY=1 ELECTRON_SKIP_BINARY_DOWNLOAD=1
+  bun install --frozen-lockfile --ignore-scripts --network-concurrency=8
+  # Upstream's only required root postinstall repairs native helper permissions.
+  bun run --cwd packages/core fix-node-pty
+}
+
+build() {
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/opencode-$pkgver" || return
+  export DO_NOT_TRACK=1 BUN_CONFIG_NO_TELEMETRY=1
+  export OPENCODE_VERSION="$pkgver" OPENCODE_CHANNEL=local OPENCODE_TARGET=linux-x64
+  # No mutable installs, downloaded replacement Bun runtime, or browser UI build.
+  unset BUN_COMPILE_RELEASE OPENCODE_MODELS_SNAPSHOT OPENCODE_RELEASE_NOTES
+  bun run --cwd packages/cli build --skip-install --skip-web-ui
+  # Generate upstream completions without user state.
+  local _binary="$PWD/packages/cli/dist/cli-linux-x64/bin/opencode"
+  local _shell
+  install -dm700 "$srcdir/integration-home"
+  install -dm755 "$srcdir/integration"
+  for _shell in bash zsh fish; do
+    env -i PATH=/usr/bin:/bin HOME="$srcdir/integration-home" TMPDIR="$srcdir/integration-home" LANG=C.UTF-8 NO_COLOR=1 \
+      "$_binary" --completions "$_shell" >"$srcdir/integration/opencode.$_shell"
+  done
+}
+
+check() {
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/opencode-$pkgver" || return
+  export DO_NOT_TRACK=1 BUN_CONFIG_NO_TELEMETRY=1
+  python "$srcdir/check.py" "$PWD"
+}
+
+package() {
+  cd "$srcdir/opencode-$pkgver" || return
+  install -Dm755 packages/cli/dist/cli-linux-x64/bin/opencode "$pkgdir/usr/bin/opencode"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$srcdir/integration/opencode.bash" "$pkgdir/usr/share/bash-completion/completions/opencode"
+  install -Dm644 "$srcdir/integration/opencode.zsh" "$pkgdir/usr/share/zsh/site-functions/_opencode"
+  install -Dm644 "$srcdir/integration/opencode.fish" "$pkgdir/usr/share/fish/vendor_completions.d/opencode.fish"
+}
