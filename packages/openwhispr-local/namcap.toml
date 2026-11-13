@@ -1,0 +1,71 @@
+pkgname = "openwhispr-local"
+pkgver = "1.11.0-1"
+build_packages = ["namcap-3.6.0-3-any", "glibc-2.44+r50+g1848099f063e-1-x86_64", "electron43-43.8.8-1-x86_64"]
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: ELF file ('usr/lib/openwhispr/node_modules/onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node') lacks FULL RELRO, check LDFLAGS."
+reason = "The integrity-pinned ONNX Node-API binding is an upstream prebuilt artifact, not linked by this recipe. Its missing immediate binding cannot be fixed by application compiler flags; retain the limitation until upstream supplies a hardened binding or a reviewed source build. The rest of the package retains Arch hardening."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: ELF file ('usr/lib/openwhispr/node_modules/@napi-rs/keyring-linux-x64-gnu/keyring.linux-x64-gnu.node') lacks PIE."
+reason = "This is an ET_DYN Node-API shared module loaded by Electron, not a standalone executable. A PIE executable flag is not appropriate for a dlopen module."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: ELF file ('usr/lib/openwhispr/node_modules/better-sqlite3/build/Release/better_sqlite3.node') lacks PIE."
+reason = "The source-built addon is an ET_DYN shared module loaded by Electron, not a standalone executable. It retains Arch linker hardening and must remain loadable with dlopen."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: ELF file ('usr/lib/openwhispr/node_modules/onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node') lacks PIE."
+reason = "This is an ET_DYN Node-API shared module loaded by Electron, not a standalone executable. A PIE executable flag is not appropriate for a dlopen module."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Unused shared library '/usr/lib/librt.so.1' by file ('usr/lib/openwhispr/node_modules/@napi-rs/keyring-linux-x64-gnu/keyring.linux-x64-gnu.node')"
+reason = "The pinned upstream GNU/Linux binding retains compatibility DT_NEEDED entries for older glibc releases. Current Arch glibc incorporates these APIs; the entries introduce no extra dependency and are not edited in the supplied native artifact."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Unused shared library '/usr/lib/libpthread.so.0' by file ('usr/lib/openwhispr/node_modules/@napi-rs/keyring-linux-x64-gnu/keyring.linux-x64-gnu.node')"
+reason = "The pinned upstream binding supports older glibc where pthread was separate. Arch glibc incorporates it; retaining the supplied compatibility entry introduces no additional package."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Unused shared library '/usr/lib/libdl.so.2' by file ('usr/lib/openwhispr/node_modules/@napi-rs/keyring-linux-x64-gnu/keyring.linux-x64-gnu.node')"
+reason = "The pinned upstream binding supports older glibc where dl was separate. Arch glibc incorporates it; retaining the supplied compatibility entry introduces no additional package."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Unused shared library '/usr/lib/libdl.so.2' by file ('usr/lib/openwhispr/node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1')"
+reason = "The pinned ONNX runtime supports older glibc where dl was separate. Arch glibc incorporates it; retaining the supplied compatibility entry introduces no additional package."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Unused shared library '/usr/lib/librt.so.1' by file ('usr/lib/openwhispr/node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1')"
+reason = "The pinned ONNX runtime supports older glibc where rt was separate. Arch glibc incorporates it; retaining the supplied compatibility entry introduces no additional package."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Unused shared library '/usr/lib/libpthread.so.0' by file ('usr/lib/openwhispr/node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1')"
+reason = "The pinned ONNX runtime supports older glibc where pthread was separate. Arch glibc incorporates it; retaining the supplied compatibility entry introduces no additional package."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Unused shared library '/usr/lib/libm.so.6' by file ('usr/lib/openwhispr/node_modules/onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node')"
+reason = "The supplied ONNX binding links libm even though its directly imported symbols do not need it. The library is part of required glibc and is also needed by the underlying ONNX runtime; no extra dependency is introduced."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Dependency included, but may not be needed ('electron43')"
+reason = "The package launcher executes /usr/bin/electron43 explicitly. Namcap does not infer runtime dependencies from shell exec arguments."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Dependency included, but may not be needed ('ffmpeg')"
+reason = "The application's media conversion helpers resolve /usr/bin/ffmpeg and spawn it for user-requested audio work; it is not an ELF dependency."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Dependency included, but may not be needed ('libsecret')"
+reason = "Electron safeStorage uses Chromium's dynamically loaded Linux Secret Service backend for encrypted credentials. This dependency is not a direct DT_NEEDED entry of the packaged helpers."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Dependency included, but may not be needed ('xdg-utils')"
+reason = "Electron opens user-requested URLs through xdg-open and the app checks XDG protocol registration; these subprocess integrations are not ELF dependencies."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Dependency included, but may not be needed ('which')"
+reason = "The retained read-only ydotool status helper executes which to discover optional integration tools."
+
+[[exceptions]]
+diagnostic = "openwhispr-local W: Dependency included, but may not be needed ('procps-ng')"
+reason = "The retained read-only ydotool status helper executes pgrep to report whether the administrator-managed daemon is running."

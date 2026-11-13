@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OpenWhispr
+Comment=Voice dictation, meeting transcription and notes
+Exec=openwhispr %U
+TryExec=openwhispr
+Icon=open-whispr
+Terminal=false
+Categories=Utility;
+MimeType=x-scheme-handler/openwhispr;
+StartupWMClass=open-whispr

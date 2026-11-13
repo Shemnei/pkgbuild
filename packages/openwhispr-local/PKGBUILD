@@ -1,0 +1,169 @@
+# Maintainer: Local package maintainers
+# shellcheck disable=SC2034,SC2154
+
+pkgname=openwhispr-local
+pkgver=1.11.0
+pkgrel=1
+pkgdesc='Desktop dictation and meeting transcription without self-updates or usage reporting'
+arch=('x86_64')
+url='https://github.com/OpenWhispr/openwhispr'
+license=('MIT' 'Apache-2.0' 'BSD-2-Clause' 'BSD-3-Clause' 'ISC' '0BSD' 'BlueOak-1.0.0' 'AGPL-3.0-or-later' 'OFL-1.1' 'Python-2.0' 'MPL-2.0')
+depends=(
+  'electron43>=43.8.3' 'ffmpeg' 'glibc' 'glib2' 'libx11' 'libxtst'
+  'libxext' 'at-spi2-core' 'libpipewire' 'libsecret' 'xdg-utils' 'which' 'procps-ng' 'libgomp' 'sqlite'
+  'bash' 'libgcc' 'libstdc++' 'hicolor-icon-theme'
+)
+makedepends=('nodejs>=24' 'npm' 'node-gyp' 'python' 'pkgconf' 'cmake' 'ninja')
+checkdepends=('desktop-file-utils')
+optdepends=(
+  'xdotool: X11 keystroke injection and active-window detection'
+  'xclip: X11 clipboard support'
+  'xsel: alternative X11 clipboard support'
+  'wl-clipboard: Wayland clipboard support'
+  'wtype: wlroots Wayland keystroke injection'
+  'ydotool: alternative Wayland keystroke injection, requires manual daemon setup'
+  'kdotool: KDE Wayland active-window detection'
+  'playerctl: pause and resume media through MPRIS'
+  'yt-dlp: import audio from supported video URLs'
+  'xdg-desktop-portal: desktop permission and screen/audio portals'
+  'gnome-keyring: one possible Secret Service provider for credential storage'
+)
+provides=("openwhispr=$pkgver")
+conflicts=('openwhispr' 'openwhispr-bin' 'openwhispr-git')
+# One output package: automatic debug packages would not have a -local suffix.
+options=('!debug')
+_electronver=43.8.9
+_whisperver=0.0.11
+source=(
+  "openwhispr-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+  "electron-$_electronver-headers.tar.gz::https://artifacts.electronjs.org/headers/dist/v$_electronver/node-v$_electronver-headers.tar.gz"
+  'onnxruntime-1.27.0-LICENSE::https://raw.githubusercontent.com/microsoft/onnxruntime/v1.27.0/LICENSE'
+  'onnxruntime-1.27.0-ThirdPartyNotices.txt::https://raw.githubusercontent.com/microsoft/onnxruntime/v1.27.0/ThirdPartyNotices.txt'
+  "whisper.cpp-$_whisperver.tar.gz::https://codeload.github.com/OpenWhispr/whisper.cpp/tar.gz/refs/tags/$_whisperver"
+  'ggml-tiny.en-q5_1.bin::https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.en-q5_1.bin'
+  'prepare.py'
+  'dependencies.py'
+  'deploy.py'
+  'updater.cjs'
+  'gpu-binary.cjs'
+  'policy.test.mjs'
+  'source-policy.test.mjs'
+  'openwhispr'
+  'open-whispr.desktop'
+  'README.md'
+  'whisper-smoke.py'
+)
+sha256sums=(
+  '535a469313cb3d88b7d78b04c8784b9abd7398ded81c5c77ba6d597b2197c149'
+  '9fff2b639c4c650fa6dfe08f77ed58d4a98f348f33c1ef3e138b5038bb7139a1'
+  '2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c'
+  '0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2'
+  'a34f6e55a2981b2d0d746b6137d27d492fb6bd94eeeae25d3e20bc9201644b82'
+  'c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b'
+  '64fd187cc100981c95707e129ab07da06a7754cf3a25989f7a2a06ce1780a8c2'
+  '58c74532c4fc3472ebb3546aba8fee8cf9c2105bc2083e6b4d793c54ebcdde72'
+  'c490e6b2b1bb892a8e43f7459f617d12c17f1a685816f2901d4273dab22b60b4'
+  '3b872fe23a903a989a87219bb49189f65fe8423e62b479f7e92f9836208d6677'
+  '62d0811855b190497eb434bd0a218d0c2966c0254d66a82269eaacd531ca47c0'
+  'fbb1010155edf91394e773487a12a4611e1a71b36b1d47d3e2162a55ebed646d'
+  '60680f316bbc907eb1c354098099dc2782261bcd0fae261b3ade51531bc50f9c'
+  'bed121ca3e03e7f1423bc8208c8d4f4efea4da19b8fbd11b18b0f12d1f1df14d'
+  'c0ee33eedeb87f386774fc4c737c981ca60946a86004a9fb438033319e62f8e2'
+  '58fbca5633f4b32d6bcf5b3bdc9c589334e227aca09baada12ba6611dffa9640'
+  '6be5d7f704ebbb1832c7ac805b0f7d643b8279ca8becf06e5cf8a5b1c8bb62f6'
+)
+
+prepare() {
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/openwhispr-$pkgver" || return
+  python "$srcdir/prepare.py" "$PWD"
+  export ELECTRON_SKIP_BINARY_DOWNLOAD=1 DO_NOT_TRACK=1
+  npm ci --ignore-scripts --no-audit --no-fund
+  python "$srcdir/dependencies.py" "$PWD"
+}
+
+build() {
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/openwhispr-$pkgver" || return
+  export ELECTRON_SKIP_BINARY_DOWNLOAD=1 DO_NOT_TRACK=1
+  # Format the reviewed patches using the upstream lockfile-pinned formatter.
+  node_modules/.bin/prettier --write main.js src/updater.js src/stores/settingsStore.ts \
+    src/helpers/{ensureYdotool,gpuBinaryManager,urlAudioDownloader,cloudApiRequest,ipcHandlers,linuxAutostart,linuxUrlSchemeHandler,whisperServer,llamaServer,llamaCppInstaller}.js
+  # Invoke the renderer directly: npm build/prebuild downloads executable helpers.
+  (cd src && ../node_modules/.bin/vite build)
+
+  # Compile upstream C helpers directly, retaining Arch hardening/build flags.
+  install -dm755 resources/bin
+  cmake -S "$srcdir/whisper.cpp-$_whisperver" -B "$srcdir/whisper-build" -G Ninja \
+    -DCMAKE_BUILD_TYPE=None -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_C_FLAGS="$CFLAGS -ffile-prefix-map=$srcdir=." \
+    -DCMAKE_CXX_FLAGS="$CXXFLAGS -ffile-prefix-map=$srcdir=." \
+    -DGGML_NATIVE=OFF -DGGML_SSE42=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF \
+    -DGGML_F16C=OFF -DGGML_FMA=OFF -DGGML_BMI2=OFF \
+    -DGGML_CCACHE=OFF -DWHISPER_CURL=OFF -DWHISPER_BUILD_TESTS=ON
+  cmake --build "$srcdir/whisper-build" --target whisper-server test-common-utf8
+  install -m755 "$srcdir/whisper-build/bin/whisper-server" resources/bin/whisper-server
+  # shellcheck disable=SC2086
+  cc $CPPFLAGS $CFLAGS resources/linux-key-listener.c $LDFLAGS -o resources/bin/linux-key-listener-x64
+  # shellcheck disable=SC2086,SC2046
+  cc $CPPFLAGS $CFLAGS -DHAVE_UINPUT -DHAVE_GIO -DHAVE_ATSPI resources/linux-fast-paste.c \
+    $LDFLAGS $(pkg-config --cflags --libs x11 xtst xext gio-2.0 atspi-2 gobject-2.0) -lm -o resources/bin/linux-fast-paste
+  # shellcheck disable=SC2086,SC2046
+  cc $CPPFLAGS $CFLAGS resources/linux-text-monitor.c $LDFLAGS \
+    $(pkg-config --cflags --libs atspi-2 gobject-2.0) -o resources/bin/linux-text-monitor
+  # shellcheck disable=SC2086,SC2046
+  cc $CPPFLAGS $CFLAGS -DHAVE_PIPEWIRE resources/linux-system-audio-helper.c $LDFLAGS \
+    $(pkg-config --cflags --libs gio-2.0 libpipewire-0.3) -o resources/bin/linux-system-audio-helper
+
+  # Upstream tests use system Node; the installed addon uses the Electron 43 ABI.
+  node-gyp rebuild --release --directory=node_modules/better-sqlite3 --nodedir=/usr
+  python "$srcdir/deploy.py" "$PWD" "$srcdir/staged-openwhispr"
+  (
+    cd "$srcdir/staged-openwhispr" || return
+    npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+    python "$srcdir/dependencies.py" "$PWD"
+    node-gyp rebuild --release --directory=node_modules/better-sqlite3 \
+      --target="$_electronver" --arch=x64 --nodedir="$srcdir/node_headers"
+    # Keep the built addon, not its object files or source/build metadata.
+    install -Dm755 node_modules/better-sqlite3/build/Release/better_sqlite3.node sqlite-addon.node
+    rm -r node_modules/better-sqlite3/build
+    install -Dm755 sqlite-addon.node node_modules/better-sqlite3/build/Release/better_sqlite3.node
+    rm sqlite-addon.node
+    python "$srcdir/deploy.py" --finalize "$PWD" "$srcdir/staged-licenses"
+  )
+}
+
+check() {
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/openwhispr-$pkgver" || return
+  npm run format:check
+  npm run typecheck
+  ctest --test-dir "$srcdir/whisper-build" --output-on-failure -R '^test-common-utf8$'
+  python "$srcdir/whisper-smoke.py" "$srcdir/staged-openwhispr/resources/bin/whisper-server" \
+    "$srcdir/ggml-tiny.en-q5_1.bin" "$srcdir/whisper.cpp-$_whisperver/samples/jfk.wav"
+  # Focused upstream contracts unaffected by the package's policy replacements.
+  node --import tsx --test test/helpers/{analytics,smartSpacing,speakerMerge,transcriptFormatter,transcriptionTimeout,whisperVadConfig}.test.js
+  OPENWHISPR_SOURCE="$PWD" node --test "$srcdir/policy.test.mjs" "$srcdir/source-policy.test.mjs"
+  OPENWHISPR_SOURCE="$srcdir/staged-openwhispr" node --test "$srcdir/policy.test.mjs" "$srcdir/source-policy.test.mjs"
+  desktop-file-validate "$srcdir/open-whispr.desktop"
+  ELECTRON_RUN_AS_NODE=1 electron43 -e \
+    "const D = require('$srcdir/staged-openwhispr/node_modules/better-sqlite3'); const d = new D(':memory:'); d.prepare('SELECT 1').get(); d.close()"
+  readelf -d "$srcdir/staged-openwhispr/node_modules/better-sqlite3/build/Release/better_sqlite3.node" | grep -F 'libsqlite3.so.0'
+}
+
+package() {
+  install -dm755 "$pkgdir/usr/lib/openwhispr"
+  cp -a "$srcdir/staged-openwhispr/." "$pkgdir/usr/lib/openwhispr/"
+  install -Dm755 "$srcdir/openwhispr" "$pkgdir/usr/bin/openwhispr"
+  install -Dm644 "$srcdir/open-whispr.desktop" "$pkgdir/usr/share/applications/open-whispr.desktop"
+  install -Dm644 "$srcdir/openwhispr-$pkgver/src/assets/icon.png" \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/open-whispr.png"
+  install -Dm644 "$srcdir/openwhispr-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$srcdir/whisper.cpp-$_whisperver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/whisper.cpp-LICENSE"
+  cp -a "$srcdir/staged-licenses" "$pkgdir/usr/share/licenses/$pkgname/node_modules"
+  install -Dm644 "$srcdir/onnxruntime-1.27.0-LICENSE" "$pkgdir/usr/share/licenses/$pkgname/onnxruntime-LICENSE"
+  install -Dm644 "$srcdir/onnxruntime-1.27.0-ThirdPartyNotices.txt" \
+    "$pkgdir/usr/share/licenses/$pkgname/onnxruntime-ThirdPartyNotices.txt"
+  install -Dm644 "$srcdir/openwhispr-$pkgver/README.md" "$pkgdir/usr/share/doc/$pkgname/upstream.md"
+  install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

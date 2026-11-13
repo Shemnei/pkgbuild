@@ -1,0 +1,1 @@
+test_dependencies = ["nodejs", "desktop-file-utils", "xorg-server-xvfb", "xorg-xauth", "dbus"]
