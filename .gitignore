@@ -1,0 +1,11 @@
+__pycache__/
+.ruff_cache/
+.pytest_cache/
+*.pyc
+/.artifacts/
+/packages/*/src/
+/packages/*/pkg/
+/packages/*/*.pkg.tar.*
+/packages/*/*.src.tar.*
+/packages/*/*.tar.gz
+/packages/*/*.log

@@ -1,0 +1,5 @@
+{
+  "base_image": "docker.io/library/archlinux@sha256:fcee73ea1b96e236248f53a213f71276cc9072d9025b58bce9915e32f19963ae",
+  "platform": "linux/amd64",
+  "arch_snapshot": "2026-11-12"
+}
