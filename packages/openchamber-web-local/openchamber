@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+# Enforce privacy/update preferences for the server and inherited child processes.
+# These are defense in depth; the server's reporting/updater implementations
+# are removed during prepare(), independent of environment and saved settings.
+export DO_NOT_TRACK=1
+export BUN_CONFIG_NO_TELEMETRY=1
+export OPENCODE_DISABLE_AUTOUPDATE=1
+exec /usr/bin/node /usr/lib/openchamber-web/bin/cli.js "$@"

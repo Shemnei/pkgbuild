@@ -1,0 +1,43 @@
+pkgbase = openchamber-web-local
+	pkgdesc = OpenChamber web UI and server, without self-updates or usage reporting
+	pkgver = 2.7.0
+	pkgrel = 3
+	url = https://github.com/openchamber/openchamber
+	arch = x86_64
+	license = MIT
+	makedepends = bun>=1.4.0
+	makedepends = python
+	makedepends = node-gyp
+	depends = nodejs>=24.14.0
+	depends = opencode>=2.2.4
+	depends = opencode<3
+	depends = ripgrep
+	depends = git
+	depends = glibc
+	depends = gcc-libs
+	optdepends = tar: unpack downloaded local dictation models
+	optdepends = bzip2: decompress downloaded local dictation models
+	provides = openchamber-web=2.7.0
+	conflicts = openchamber-web
+	conflicts = openchamber-web-bin
+	conflicts = openchamber
+	conflicts = openchamber-bin
+	options = !debug
+	source = openchamber-2.7.0.tar.gz::https://github.com/openchamber/openchamber/archive/refs/tags/v2.7.0.tar.gz
+	source = prepare.py
+	source = deploy.py
+	source = lint.py
+	source = policy.test.mjs
+	source = staged.test.mjs
+	source = openchamber
+	source = openchamber-web.service
+	sha256sums = b9dc0b928d259ed5a65dc614435602a83c5e18a95e448813f9081013d9e8e5a1
+	sha256sums = 7014a9e31fcb56406c821de81b3cd496437248c345c0e890c0bbf359f7655524
+	sha256sums = 3c5834debb5949164ff2c6b7e1da3e1ed1130465de5e30caf94f4c272aadf891
+	sha256sums = 623110231d5eaa3e4dfacb0824f3aea71145b274f882f9483c64972ecb19e031
+	sha256sums = dc3c4e30cb40db4484ca1e4e508bc3c1da2b992c49a49e48e1b07cb1994ef544
+	sha256sums = 83d096b5751100e0743b053d011227070d3cb4166cd4bd31315172d42e950852
+	sha256sums = 35a459b8cc4b97b4d0cce95615da15f07fe861b77aabfdea05ef442c8a52a11e
+	sha256sums = 7b74d5f83b77ac453e4be8ab5dfdb18c23cd1c18e7bf6eafaa5df253e61dc35b
+
+pkgname = openchamber-web-local

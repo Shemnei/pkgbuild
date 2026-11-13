@@ -1,0 +1,95 @@
+# Maintainer: Local package maintainers
+# shellcheck disable=SC2034,SC2154
+
+pkgname=openchamber-web-local
+pkgver=2.7.0
+pkgrel=3
+pkgdesc='OpenChamber web UI and server, without self-updates or usage reporting'
+arch=('x86_64')
+url='https://github.com/openchamber/openchamber'
+license=('MIT')
+depends=('nodejs>=24.14.0' 'opencode>=2.2.4' 'opencode<3' 'ripgrep' 'git' 'glibc' 'gcc-libs')
+makedepends=('bun>=1.4.0' 'python' 'node-gyp')
+optdepends=('tar: unpack downloaded local dictation models' 'bzip2: decompress downloaded local dictation models')
+provides=("openchamber-web=$pkgver")
+conflicts=('openchamber-web' 'openchamber-web-bin' 'openchamber' 'openchamber-bin')
+# Keep one runtime package; makepkg's automatic -debug package would not end in -local.
+options=('!debug')
+source=(
+  "openchamber-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+  'prepare.py'
+  'deploy.py'
+  'lint.py'
+  'policy.test.mjs'
+  'staged.test.mjs'
+  'openchamber'
+  'openchamber-web.service'
+)
+sha256sums=(
+  'b9dc0b928d259ed5a65dc614435602a83c5e18a95e448813f9081013d9e8e5a1'
+  '7014a9e31fcb56406c821de81b3cd496437248c345c0e890c0bbf359f7655524'
+  '3c5834debb5949164ff2c6b7e1da3e1ed1130465de5e30caf94f4c272aadf891'
+  '623110231d5eaa3e4dfacb0824f3aea71145b274f882f9483c64972ecb19e031'
+  'dc3c4e30cb40db4484ca1e4e508bc3c1da2b992c49a49e48e1b07cb1994ef544'
+  '83d096b5751100e0743b053d011227070d3cb4166cd4bd31315172d42e950852'
+  '35a459b8cc4b97b4d0cce95615da15f07fe861b77aabfdea05ef442c8a52a11e'
+  '7b74d5f83b77ac453e4be8ab5dfdb18c23cd1c18e7bf6eafaa5df253e61dc35b'
+)
+
+prepare() {
+  # Prefer Arch-managed tools over user runtime-manager shims, including in children.
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/openchamber-$pkgver" || return
+  python "$srcdir/prepare.py" "$PWD"
+  export DO_NOT_TRACK=1 BUN_CONFIG_NO_TELEMETRY=1 ELECTRON_SKIP_BINARY_DOWNLOAD=1
+  # Fetch only the dependency graph pinned by upstream's integrity-bearing lockfile.
+  # No lifecycle scripts, SDK postinstall, Electron downloads, or remote installers.
+  bun install --frozen-lockfile --ignore-scripts --network-concurrency=8
+}
+
+build() {
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/openchamber-$pkgver" || return
+  export DO_NOT_TRACK=1 BUN_CONFIG_NO_TELEMETRY=1 VITE_ENABLE_REACT_SCAN=0
+  bun run --cwd packages/sdk build
+  bun run build:web
+  # Build the Node-API terminal addon against Arch's installed headers, offline.
+  node-gyp rebuild --directory="$(realpath node_modules/node-pty)" --nodedir=/usr
+  python "$srcdir/deploy.py" "$PWD/packages/web" "$srcdir/staged-web"
+  install -dm700 "$srcdir/integration-home"
+  install -dm755 "$srcdir/integration"
+  local _shell
+  for _shell in bash zsh fish; do
+    env -i PATH=/usr/bin:/bin HOME="$srcdir/integration-home" TMPDIR="$srcdir/integration-home" LANG=C.UTF-8 NO_COLOR=1 \
+      "$srcdir/staged-web/bin/cli.js" tunnel completion "$_shell" >"$srcdir/integration/openchamber.$_shell"
+  done
+}
+
+check() {
+  export PATH="/usr/bin:$PATH"
+  cd "$srcdir/openchamber-$pkgver" || return
+  export DO_NOT_TRACK=1 BUN_CONFIG_NO_TELEMETRY=1 OPENCODE_DISABLE_AUTOUPDATE=1
+  python "$srcdir/lint.py" "$PWD"
+  bun run --cwd packages/web oxlint --deny-warnings "$srcdir/policy.test.mjs" "$srcdir/staged.test.mjs"
+  # Upstream's scripts require a newer Bun `check` subcommand; run the same
+  # projects through the lockfile-pinned TypeScript compiler available today.
+  bun run --cwd packages/web tsc -b
+  bun run --cwd packages/ui tsc -b
+  OPENCHAMBER_SOURCE="$PWD" node --test "$srcdir/policy.test.mjs"
+  # A focused upstream suite of unaffected server boundaries. Replaced updater
+  # contracts are tested above, not against upstream's self-update expectations.
+  bun run --cwd packages/web test server/lib/fs/ripgrep.test.js server/lib/opencode/health-wait.test.js server/lib/dictation/local/model-downloader.test.js
+  OPENCHAMBER_STAGED="$srcdir/staged-web" node --test "$srcdir/staged.test.mjs"
+}
+
+package() {
+  install -dm755 "$pkgdir/usr/lib/openchamber-web"
+  cp -a "$srcdir/staged-web/." "$pkgdir/usr/lib/openchamber-web/"
+  install -Dm755 "$srcdir/openchamber" "$pkgdir/usr/bin/openchamber"
+  install -Dm644 "$srcdir/openchamber-web.service" "$pkgdir/usr/lib/systemd/user/openchamber-web.service"
+  install -Dm644 "openchamber-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "openchamber-$pkgver/packages/web/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$srcdir/integration/openchamber.bash" "$pkgdir/usr/share/bash-completion/completions/openchamber"
+  install -Dm644 "$srcdir/integration/openchamber.zsh" "$pkgdir/usr/share/zsh/site-functions/_openchamber"
+  install -Dm644 "$srcdir/integration/openchamber.fish" "$pkgdir/usr/share/fish/vendor_completions.d/openchamber.fish"
+}

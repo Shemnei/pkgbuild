@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenChamber local web UI and server
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/openchamber/service.env
+ExecStart=/usr/bin/openchamber serve --foreground
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target
