@@ -3,7 +3,7 @@
 
 pkgname=opencode-local
 pkgver=2.2.7
-pkgrel=3
+pkgrel=4
 pkgdesc='OpenCode V2 CLI/TUI and server, managed by pacman without remote reporting'
 arch=('x86_64')
 url='https://github.com/anomalyco/opencode'
@@ -25,7 +25,7 @@ sha256sums=(
   'e89b985d60806c1d629443feb9a9bdad987b95a57d3cc6edd7d0c8c22e2abdb6'
   '3fd66fa519273cfcbec761bae7e202e1497dc4191a77d228453dc1df2c94d2a4'
   'f34b2cb9580ce00d0944a22218f9213e10bfbc28e3c16aa88e20fe464adac3cd'
-  '89899cb0e1a4d42448b6fbdcaa3951dede69fc6772d0f389341fa473521de0df'
+  '0b165c3e5f608b5bede0d7de707d3251e2b02af2b580f3bd2d08e3775c358799'
 )
 
 prepare() {
@@ -43,7 +43,8 @@ build() {
   export PATH="/usr/bin:$PATH"
   cd "$srcdir/opencode-$pkgver" || return
   export DO_NOT_TRACK=1 BUN_CONFIG_NO_TELEMETRY=1
-  export OPENCODE_VERSION="$pkgver" OPENCODE_CHANNEL=local OPENCODE_TARGET=linux-x64
+  # Package provenance must not split upstream user state or enable local-build flags.
+  export OPENCODE_VERSION="$pkgver" OPENCODE_CHANNEL=latest OPENCODE_TARGET=linux-x64
   # No mutable installs, downloaded replacement Bun runtime, or browser UI build.
   unset BUN_COMPILE_RELEASE OPENCODE_MODELS_SNAPSHOT OPENCODE_RELEASE_NOTES
   bun run --cwd packages/cli build --skip-install --skip-web-ui

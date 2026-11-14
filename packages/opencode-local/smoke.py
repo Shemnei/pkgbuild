@@ -95,7 +95,11 @@ def smoke(binary):
         (config / "opencode.json").write_text('{"update":"auto"}\n')
         sentinel = config / "keep-user-data"
         sentinel.write_text("untouched")
-        for args, marker in ((["--version"], "2.2.7"), (["--help"], "opencode")):
+        for args, marker in (
+            (["--version"], "2.2.7"),
+            (["--help"], "opencode"),
+            (["debug", "paths", "db"], f"{home}/data/opencode/opencode.db"),
+        ):
             result = subprocess.run(
                 [binary, *args],
                 cwd=home,

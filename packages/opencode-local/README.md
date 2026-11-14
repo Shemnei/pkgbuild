@@ -18,14 +18,25 @@ Build phases prefer `/usr/bin` over runtime-manager shims, including in child
 processes. From the repository root:
 
 ```sh
-just install opencode-local
+just test opencode-local
+# Inspect the successful run's archive, then install it on an Arch host:
+sudo pacman -U /absolute/path/to/opencode-local-2.2.7-4-x86_64.pkg.tar.zst
 opencode
 ```
 
-The install command builds with dependency resolution and normal pacman prompts;
-do not run it with sudo. The recipe also works directly with makepkg.
+The test command builds and validates in disposable containers without host
+installation; do not run it with sudo. The explicit pacman transaction retains
+normal prompts. The recipe also works directly with makepkg.
 It provides `opencode=2.2.7`, satisfies OpenChamber's OpenCode requirements, and
 conflicts with other packages owning the same executable.
+
+The package uses upstream's standard `latest` release channel, not a separate
+local/development channel. The `-local` suffix identifies the Arch package only;
+normal sessions and credentials remain in `~/.local/share/opencode/opencode.db`
+(subject to XDG and upstream database overrides). Earlier local-channel builds
+used `opencode-local.db`; that database is left untouched and is not merged into
+the standard database. Accounts or sessions created only there are not available
+in the standard database; reconnect missing accounts with `/connect`.
 
 ## System integration
 
@@ -106,9 +117,10 @@ exceptions. Do not carry exceptions forward without checking them.
 
 `just check` runs repository and recipe regression checks; `just verify` checks
 sources. Makepkg's `check()` runs policy/upstream tests, reviewed-module lint and
-format checks, CLI TypeScript checks, and relocated CLI/API smoke tests.
+format checks, CLI TypeScript checks, and relocated CLI/API smoke tests, including
+the standard release database path without database overrides.
 
-`just container-test opencode-local` builds and installs in disposable containers.
+`just test opencode-local` builds and installs in disposable containers.
 Installed checks cover completion syntax and behavior, CLI/API refusals,
 preserved user state, and TUI prompt/version rendering. Zsh and Fish are declared
 in `validation.toml`; missing tools fail validation rather than being skipped.

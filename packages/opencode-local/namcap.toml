@@ -1,5 +1,5 @@
 pkgname = "opencode-local"
-pkgver = "2.2.7-3"
+pkgver = "2.2.7-4"
 build_packages = ["bun-1.4.4-1-x86_64"]
 
 [[exceptions]]

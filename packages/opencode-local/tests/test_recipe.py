@@ -97,6 +97,35 @@ cd() {
         self.assertIn("'!strip'", text)
         self.assertNotIn("node_modules", text.split("package()", 1)[1])
 
+    def test_build_uses_standard_release_channel_even_when_environment_selects_local(self):
+        result = subprocess.run(
+            [
+                "/usr/bin/bash",
+                "--noprofile",
+                "--norc",
+                "-c",
+                """
+set -e
+source "$1"
+srcdir=/unused
+cd() { :; }
+export OPENCODE_CHANNEL=local
+bun() {
+  printf '%s\\n' "$OPENCODE_CHANNEL" "$OPENCODE_VERSION"
+  return 1
+}
+build
+""",
+                "release-channel-test",
+                str(RECIPE / "PKGBUILD"),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["latest", "2.2.7"])
+
     def test_smoke_commands_isolate_user_environment_and_require_refusals(self):
         module = recipe_module("smoke")
         calls = []
@@ -108,6 +137,10 @@ cd() {
                 return subprocess.CompletedProcess(args, 0, "2.2.7", "")
             if command == "--help":
                 return subprocess.CompletedProcess(args, 0, "opencode", "")
+            if args[1:] == ["debug", "paths", "db"]:
+                return subprocess.CompletedProcess(
+                    args, 0, f"{kwargs['env']['XDG_DATA_HOME']}/opencode/opencode.db\n", ""
+                )
             return subprocess.CompletedProcess(args, 1, "", "Use pacman")
 
         with (
@@ -116,15 +149,28 @@ cd() {
             redirect_stdout(io.StringIO()),
         ):
             module.smoke(RECIPE / "PKGBUILD")
-        self.assertEqual(len(calls), 6)
+        self.assertEqual(len(calls), 7)
         server.assert_called_once()
         for _, kwargs in calls:
             self.assertNotIn("ANTHROPIC_API_KEY", kwargs["env"])
+            self.assertNotIn("OPENCODE_DB", kwargs["env"])
+            self.assertNotIn("OPENCODE_DISABLE_CHANNEL_DB", kwargs["env"])
             self.assertEqual(kwargs["env"]["OPENCODE_DISABLE_AUTOUPDATE"], "false")
             self.assertNotEqual(Path(kwargs["cwd"]), Path.home())
             self.assertNotEqual(kwargs["env"]["TMPDIR"], kwargs["env"]["HOME"])
             self.assertEqual(Path(kwargs["env"]["TMPDIR"]).parent, Path(kwargs["env"]["HOME"]))
         self.assertFalse(Path(calls[0][1]["cwd"]).exists())
+
+    def test_smoke_rejects_a_separate_channel_database(self):
+        module = recipe_module("smoke")
+        results = [
+            subprocess.CompletedProcess([], 0, "2.2.7", ""),
+            subprocess.CompletedProcess([], 0, "opencode", ""),
+            subprocess.CompletedProcess([], 0, "/data/opencode/opencode-local.db", ""),
+        ]
+        with patch.object(module.subprocess, "run", side_effect=results):
+            with self.assertRaisesRegex(ValueError, "opencode.db"):
+                module.smoke(RECIPE / "PKGBUILD")
 
     def test_upstream_completions_are_built_and_downstream_manuals_are_not_shipped(self):
         text = (RECIPE / "PKGBUILD").read_text()
@@ -175,12 +221,16 @@ check
 
     def test_smoke_rejects_a_successful_self_update(self):
         module = recipe_module("smoke")
-        results = [
-            subprocess.CompletedProcess([], 0, "2.2.7", ""),
-            subprocess.CompletedProcess([], 0, "opencode", ""),
-            subprocess.CompletedProcess([], 0, "Updated successfully", ""),
-        ]
-        with patch.object(module.subprocess, "run", side_effect=results):
+
+        def run(args, **kwargs):
+            output = {
+                "--version": "2.2.7",
+                "--help": "opencode",
+                "debug": f"{kwargs['env']['XDG_DATA_HOME']}/opencode/opencode.db\n",
+            }.get(args[1], "Updated successfully")
+            return subprocess.CompletedProcess(args, 0, output, "")
+
+        with patch.object(module.subprocess, "run", side_effect=run):
             with self.assertRaisesRegex(ValueError, "did not refuse safely"):
                 module.smoke(RECIPE / "PKGBUILD")
 
