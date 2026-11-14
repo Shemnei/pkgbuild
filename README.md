@@ -1,4 +1,4 @@
-# Local Arch packages
+# pkgbuild
 
 One self-contained recipe per `packages/<pkgname>/` directory. All packages
 end in `-local`; pacman owns updates. Upstream self-updaters and outbound
@@ -142,3 +142,16 @@ Use Conventional Commits with the full package directory name as the scope:
 `<type>(<pkgname>): <summary>`. Commit each package addition or change separately,
 including its recipe, `.SRCINFO`, sources, tests, and documentation together.
 Shared repository changes belong in separate, unscoped Conventional Commits.
+
+## License and publication scope
+
+Original recipes, helpers, tests, and documentation are licensed under the
+[MIT license](LICENSE). Upstream-derived excerpts retain the notices in each
+recipe's `UPSTREAM-LICENSE`; the recipe's URL and version identify their source.
+These notices do not relicense upstream applications or their dependencies.
+
+This repository publishes build instructions and downstream changes, not
+downloaded upstream source trees, compiled packages, dependency trees, models, or
+validation logs. Publishing a recipe does not certify redistribution compliance
+for its built archive. Review the recipe's licensing notes and all included
+third-party source, notice, and license obligations before distributing binaries.

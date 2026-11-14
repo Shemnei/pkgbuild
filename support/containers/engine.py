@@ -65,7 +65,7 @@ class Engine:
         for name in ("Containerfile", "__init__.py", "config.py", "worker.py"):
             digest.update(name.encode())
             digest.update((context / name).read_bytes())
-        tag = f"pkgconf-validation:{digest.hexdigest()[:20]}-{target}"
+        tag = f"pkgbuild-validation:{digest.hexdigest()[:20]}-{target}"
         exists = subprocess.run(
             [self.name, "image", "inspect", tag], capture_output=True, text=True, check=False
         )
@@ -144,7 +144,7 @@ class Engine:
             command(self.name, "rm", "--force", container)
 
     def runtime_tag(self):
-        return f"pkgconf-validation:installed-{uuid.uuid4().hex}"
+        return f"pkgbuild-validation:installed-{uuid.uuid4().hex}"
 
     def remove_image(self, image):
         command(self.name, "image", "rm", image)

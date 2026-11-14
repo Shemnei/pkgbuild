@@ -5,16 +5,16 @@ RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$
     && pacman -Syu --needed --noconfirm python \
     && pacman -Scc --noconfirm \
     && useradd --create-home --uid 1000 builder \
-    && install -d /input /archives /output /work /opt/pkgconf/support/containers \
+    && install -d /input /archives /output /work /opt/pkgbuild/support/containers \
     && chown builder:builder /output /work
 ENV LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1
-WORKDIR /opt/pkgconf
+WORKDIR /opt/pkgbuild
 ENTRYPOINT ["/usr/bin/python", "-B", "-m", "support.containers.worker"]
 
 FROM base AS runtime
-COPY __init__.py config.py worker.py /opt/pkgconf/support/containers/
+COPY __init__.py config.py worker.py /opt/pkgbuild/support/containers/
 
 FROM base AS tools
 RUN pacman -S --needed --noconfirm base-devel just ruff shellcheck shfmt namcap devtools nodejs codespell typos desktop-file-utils \
     && pacman -Scc --noconfirm
-COPY __init__.py config.py worker.py /opt/pkgconf/support/containers/
+COPY __init__.py config.py worker.py /opt/pkgbuild/support/containers/

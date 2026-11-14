@@ -49,7 +49,7 @@ def validate(action, package, engine, output, root=ROOT, context=CONTEXT):
     }
     print(f"Validation evidence: {output}", flush=True)
     try:
-        with tempfile.TemporaryDirectory(prefix="pkgconf-container-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="pkgbuild-container-") as temporary:
             inputs = Path(temporary) / "input"
             manifest = snapshot(root, inputs)
             (output / "sources.json").write_text(
