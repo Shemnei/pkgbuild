@@ -6,18 +6,18 @@ RUN sed -i -E '/^[[:space:]]*(NoExtract[[:space:]]*=|DisableSandbox(Filesystem|S
     && setpriv --no-new-privs pacman -Syu --needed --noconfirm python \
     && pacman -Scc --noconfirm \
     && useradd --create-home --uid 1000 builder \
-    && install -d /input /archives /output /work /opt/pkgconf/support/containers \
+    && install -d /input /archives /output /work /opt/pkgbuild/support/containers \
     && chown builder:builder /output /work
 ENV LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1
-WORKDIR /opt/pkgconf
+WORKDIR /opt/pkgbuild
 ENTRYPOINT ["/usr/bin/python", "-B", "-m", "support.containers.worker"]
 
 FROM base AS runtime
-COPY recipes.py artifacts.py diagnostics.py /opt/pkgconf/support/
-COPY __init__.py worker.py /opt/pkgconf/support/containers/
+COPY recipes.py artifacts.py diagnostics.py /opt/pkgbuild/support/
+COPY __init__.py worker.py /opt/pkgbuild/support/containers/
 
 FROM base AS tools
 RUN setpriv --no-new-privs pacman -S --needed --noconfirm base-devel just ruff shellcheck shfmt namcap nodejs codespell typos desktop-file-utils \
     && pacman -Scc --noconfirm
-COPY recipes.py artifacts.py diagnostics.py /opt/pkgconf/support/
-COPY __init__.py worker.py /opt/pkgconf/support/containers/
+COPY recipes.py artifacts.py diagnostics.py /opt/pkgbuild/support/
+COPY __init__.py worker.py /opt/pkgbuild/support/containers/

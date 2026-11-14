@@ -1,0 +1,4 @@
+# Downloaded makepkg sources; publish the recipe and checksums, not these files.
+/ggml-*.bin
+/onnxruntime-*-LICENSE
+/onnxruntime-*-ThirdPartyNotices.txt

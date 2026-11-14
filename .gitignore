@@ -9,3 +9,4 @@ __pycache__/
 /packages/*/*.src.tar.*
 /packages/*/*.tar.gz
 /packages/*/*.log
+/packages/*/*.log.*

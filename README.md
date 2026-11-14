@@ -1,4 +1,4 @@
-# Local Arch packages
+# pkgbuild
 
 One standalone makepkg recipe per `packages/<pkgname>/` directory, including
 sources, downstream changes, tests, README, and committed `.SRCINFO`. Each recipe
@@ -206,3 +206,16 @@ behavior, and the final patched application require separate review and testing.
 Use `<type>(<pkgname>): <summary>` with the full `-local` directory name. Commit
 each package separately with its metadata, sources, tests, and documentation.
 Shared repository changes use separate, unscoped Conventional Commits.
+
+## License and publication scope
+
+Original recipes, helpers, tests, and documentation are licensed under the
+[MIT license](LICENSE). Upstream-derived excerpts retain the notices in each
+recipe's `UPSTREAM-LICENSE`; the recipe's URL and version identify their source.
+These notices do not relicense upstream applications or their dependencies.
+
+This repository publishes build instructions and downstream changes, not
+downloaded upstream source trees, compiled packages, dependency trees, models, or
+validation logs. Publishing a recipe does not certify redistribution compliance
+for its built archive. Review the recipe's licensing notes and all included
+third-party source, notice, and license obligations before distributing binaries.
