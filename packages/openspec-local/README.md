@@ -75,10 +75,11 @@ establish complete network isolation.
 
 ## Validation and maintenance
 
-Run `just check`, `just verify`, `just container-test openspec-local`, and
-`just chroot openspec-local`. Container validation supplements the genuine
-clean-chroot release gate. Inspect the resulting archive with
-`just package-lint openspec-local`.
+Run `just check openspec-local`, `just verify openspec-local`, and
+`just test openspec-local`. These commands run in containers; the test workflow
+builds, lints, installs, and exercises the archive. Container validation
+supplements the genuine clean-chroot release gate: run `extra-x86_64-build`
+from this recipe's directory on an appropriately configured Arch host or VM.
 
 `check()` runs upstream lint, compilation through the build, and the upstream
 test suite except the four reporting/updater/installer suites and the version-report
@@ -98,12 +99,12 @@ shell syntax/loading, and package files
 as an ordinary user in a disposable home. `validation.toml` keeps optional shells
 and bash-completion confined to installed validation.
 
-The official Arch container image excludes `usr/share/doc/*` through pacman's
-`NoExtract` policy. Installed checks require the README's package ownership and,
-when its file is absent, that exact exclusion; otherwise they read the installed
-README. Archive validation verifies the shipped file independently. This is a
-narrow container-documentation exception, not permission to ignore missing CLI,
-license, or completion files.
+Installed checks require the README's package ownership and read its contents.
+The repository's validation images clear the official Arch base image's
+documentation exclusions. In other runtimes that deliberately omit the README,
+the check requires pacman's exact `NoExtract` entry `usr/share/doc/*`; archive
+validation verifies the shipped file independently. This narrow documentation
+exception does not permit missing CLI, license, or completion files.
 
 Release validation must include the clean-chroot build and any live external
 integrations required by the intended deployment. Upstream's opt-in historical
