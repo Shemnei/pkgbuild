@@ -17,13 +17,15 @@ including in child processes.
 From the repository root:
 
 ```sh
-just install opencode-local
-just install openchamber-web-local
+just test openchamber-web-local
+# Inspect the successful run's archives, then install both on an Arch host:
+sudo pacman -U /absolute/path/to/opencode-local-2.2.7-3-x86_64.pkg.tar.zst /absolute/path/to/openchamber-web-local-2.7.0-3-x86_64.pkg.tar.zst
 openchamber --ui-password 'choose-a-password'
 ```
 
-Install commands resolve dependencies and use normal pacman prompts; do not run
-them with sudo. The recipe also works directly with makepkg. A compatible
+The test command builds and validates both recipes in disposable containers;
+do not run it with sudo. The explicit pacman transaction retains normal prompts.
+The recipe also works directly with makepkg. A compatible
 distribution OpenCode package satisfies the dependency, but does not necessarily
 provide this repository's downstream update/privacy policy.
 
@@ -129,7 +131,7 @@ native-addon checks. These also check web assets and the absence of a shipped
 service worker or Electron runtime. The full desktop/mobile/VS Code/remote-service
 suite is outside this web-only recipe's scope.
 
-`just container-test openchamber-web-local` builds and installs the patched
+`just test openchamber-web-local` builds and installs the patched
 `opencode-local` dependency before OpenChamber. Installed tests cover CLI refusals,
 native-terminal behavior, authenticated HTTP/UI delivery, an existing reporting
 opt-in, local update status, installer refusals, completion syntax/behavior, and
@@ -138,7 +140,7 @@ unit-file verification. Zsh, Fish, and systemd are declared only in
 Unit verification is not a real
 user-manager lifecycle test.
 
-Containers do not replace a clean Arch chroot. The generic `just chroot` uses the
+Containers do not replace a clean Arch chroot. Devtools otherwise uses the
 distribution OpenCode provider; to test the patched dependency, pass its archive
 to devtools from this recipe directory:
 
@@ -149,3 +151,9 @@ extra-x86_64-build -- -I /absolute/path/to/opencode-local.pkg.tar.zst
 Release validation still requires a successful final-source build, archive lint,
 installed checks, a clean-chroot build, installed-browser/network testing, and
 real user-service start/stop/restart checks. The package is not yet release-ready.
+
+Archive validation is not clean: bundled speech binaries retain insecure upstream
+build-host/empty RUNPATHs and hardening findings, and the production closure still
+contains development-only files and empty directories. These are release blockers,
+not accepted archive-lint exceptions. Resolve them within this recipe rather than
+weakening the shared checker.
