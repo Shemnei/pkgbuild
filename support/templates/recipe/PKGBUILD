@@ -1,0 +1,30 @@
+# Maintainer: Local package maintainers
+# shellcheck disable=SC2034,SC2154
+# TODO: replace metadata, sources, dependencies, and every build phase.
+
+pkgname='@PACKAGE@'
+pkgver=0
+pkgrel=1
+pkgdesc='TODO: describe the upstream application'
+arch=('x86_64')
+url='https://example.invalid/TODO'
+license=('TODO')
+# Automatic split debug packages would violate the repository's one-output rule.
+options=('!debug')
+source=("$url/release-$pkgver.tar.gz")
+sha256sums=('TODO_REPLACE_WITH_VERIFIED_SHA256')
+
+build() {
+  printf '%s\n' 'TODO: implement the reviewed upstream build' >&2
+  return 1
+}
+
+check() {
+  printf '%s\n' 'TODO: implement meaningful upstream and package checks' >&2
+  return 1
+}
+
+package() {
+  printf '%s\n' 'TODO: install built files into standard Arch locations' >&2
+  return 1
+}

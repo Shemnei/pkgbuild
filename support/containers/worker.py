@@ -1,6 +1,7 @@
 """In-container coordinator. Only package setup runs as container root."""
 
 import argparse
+import json
 import os
 import pwd
 import shutil
@@ -8,7 +9,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .config import DEPENDENCY, dependency_order, recipe_config, srcinfo
+from support.artifacts import read_manifest, write_manifest
+from support.diagnostics import print_error
+from support.recipes import (
+    DEPENDENCY,
+    build_installation,
+    build_order,
+    recipe_config,
+    runtime_closure,
+    select,
+    srcinfo,
+    validate_integrity,
+)
 
 INPUT = Path("/input")
 ARCHIVES = Path("/archives")
@@ -82,17 +94,26 @@ def install_missing(dependencies):
         )
 
 
-def install_archives(root, package, include_target):
-    names = dependency_order(root, package, runtime=include_target)
-    if not include_target:
-        names = names[:-1]
+def check_pacman_policy():
+    config = run("pacman-conf", capture=True).stdout
+    directives = {line.partition("=")[0].strip() for line in config.splitlines()}
+    forbidden = {
+        "NoExtract",
+        "DisableSandbox",
+        "DisableSandboxFilesystem",
+        "DisableSandboxSyscalls",
+    }
+    if directives & forbidden:
+        raise ValueError(
+            f"Image disables package contents or download sandboxing: {directives & forbidden}"
+        )
+
+
+def install_archives(names):
     archives = []
     for name in names:
-        files = sorted((ARCHIVES / name).glob("*.pkg.tar.*"))
-        files = [path for path in files if not path.name.endswith(".sig")]
-        if not files or any(path.is_symlink() or not path.is_file() for path in files):
-            raise ValueError(f"Missing regular package archives for {name}")
-        archives.extend(files)
+        directory = ARCHIVES / name
+        archives.extend(directory / filename for filename in read_manifest(directory))
     if archives:
         run(
             "pacman",
@@ -125,8 +146,8 @@ def build(root, package):
     metadata = run("makepkg", "--printsrcinfo", cwd=directory, builder=True, capture=True).stdout
     if metadata != (directory / ".SRCINFO").read_text():
         raise ValueError(f"Stale metadata for {package}; run just srcinfo")
-    fields = srcinfo(metadata)
-    install_archives(root, package, include_target=False)
+    fields = validate_integrity(directory)
+    install_archives(build_installation(root, package))
     dependencies = []
     for key, values in fields.items():
         category, _, architecture = key.partition("_")
@@ -139,15 +160,13 @@ def build(root, package):
     run("makepkg", "--verifysource", cwd=directory, builder=True)
     run("makepkg", "--cleanbuild", "--log", cwd=directory, builder=True)
     expected = run("makepkg", "--packagelist", cwd=directory, builder=True, capture=True)
-    for filename in expected.stdout.splitlines():
-        path = Path(filename)
-        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(OUTPUT):
-            raise ValueError(f"Invalid build artifact: {filename}")
+    write_manifest(OUTPUT, expected.stdout.splitlines())
 
 
-def install(root, package):
-    install_archives(root, package, include_target=True)
-    install_missing(recipe_config(root / "packages" / package)["test_dependencies"])
+def install(root, package, *, test_tools=True):
+    install_archives(runtime_closure(root, package))
+    if test_tools:
+        install_missing(recipe_config(root / "packages" / package).test_dependencies)
 
 
 def smoke(root, package):
@@ -165,16 +184,71 @@ def smoke(root, package):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=["check", "build", "lint", "install", "smoke"])
+    parser.add_argument(
+        "phase",
+        choices=[
+            "check",
+            "verify",
+            "discover",
+            "metadata-inputs",
+            "srcinfo",
+            "build",
+            "lint",
+            "lint-install",
+            "install",
+            "smoke",
+        ],
+    )
     parser.add_argument("package", nargs="?")
     args = parser.parse_args()
     if os.getuid() != 0:
         raise ValueError("The coordinator needs container root for package setup")
-    if args.phase != "check":
-        dependency_order(INPUT, args.package)
-    root = INPUT if args.phase == "install" else prepare_workspace()
-    if args.phase == "check":
-        run("just", "check", cwd=root, builder=True)
+    check_pacman_policy()
+    if args.phase in {"build", "lint", "lint-install", "install", "smoke"}:
+        build_order(INPUT, args.package)
+    root = INPUT if args.phase in {"install", "lint-install"} else prepare_workspace()
+    if args.phase in {"check", "verify", "discover"}:
+        arguments = [args.package] if args.package else []
+        if args.phase == "discover":
+            arguments.extend(["--output", str(OUTPUT)])
+        run(
+            "/usr/bin/python",
+            "-B",
+            "-m",
+            "support.repo",
+            args.phase,
+            *arguments,
+            cwd=root,
+            builder=True,
+        )
+    elif args.phase == "metadata-inputs":
+        directory = select(root, args.package)[0]
+        result = run(
+            "bash",
+            "--noprofile",
+            "--norc",
+            "-ec",
+            'source ./PKGBUILD >/dev/null; printf "%s\\0%s\\0" "${install-}" "${changelog-}"',
+            cwd=directory,
+            builder=True,
+            capture=True,
+        )
+        values = result.stdout.split("\0")
+        if len(values) != 3 or values[-1]:
+            raise ValueError("Invalid metadata input probe result")
+        fields = {
+            key: [value] if value else []
+            for key, value in zip(("install", "changelog"), values[:2], strict=True)
+        }
+        (OUTPUT / "metadata-inputs.json").write_text(json.dumps(fields) + "\n")
+    elif args.phase == "srcinfo":
+        for directory in select(root, args.package):
+            result = run("makepkg", "--printsrcinfo", cwd=directory, builder=True, capture=True)
+            if srcinfo(result.stdout).get("pkgname") != [directory.name]:
+                raise ValueError(f"Expected one output package named {directory.name}")
+            target = OUTPUT / directory.name / ".SRCINFO"
+            target.parent.mkdir()
+            target.write_text(result.stdout)
     elif args.phase == "build":
         build(root, args.package)
     elif args.phase == "lint":
@@ -182,15 +256,17 @@ def main():
         run(
             "/usr/bin/python",
             "-B",
-            "support/repo.py",
+            "-m",
+            "support.repo",
             "package-lint",
             args.package,
+            "--archives",
+            ARCHIVES / args.package,
             cwd=root,
             builder=True,
-            environment={"PKGDEST": str(ARCHIVES / args.package)},
         )
-    elif args.phase == "install":
-        install(root, args.package)
+    elif args.phase in {"install", "lint-install"}:
+        install(root, args.package, test_tools=args.phase == "install")
     else:
         smoke(root, args.package)
 
@@ -199,5 +275,5 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        print_error(error)
         sys.exit(1)

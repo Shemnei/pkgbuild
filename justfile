@@ -3,37 +3,26 @@ set positional-arguments
 default:
     @just --list
 
-check: lint test
+check package='':
+    python -B -m support.containers check ${1:+"$1"}
 
-lint:
-    python support/repo.py lint
+verify package='':
+    python -B -m support.containers verify ${1:+"$1"}
 
-test:
-    python -B support/repo.py test
+discover package:
+    python -B -m support.containers discover "$1"
 
-verify:
-    python support/repo.py verify
-
-srcinfo:
-    python support/repo.py srcinfo
+srcinfo package:
+    python -B -m support.containers srcinfo "$1"
 
 build package:
-    python support/repo.py build "$1"
-
-install package:
-    python support/repo.py install "$1"
-
-chroot package:
-    python support/repo.py chroot "$1"
-
-package-lint package:
-    python support/repo.py package-lint "$1"
-
-container-check:
-    python -B -m support.containers check
-
-container-build package:
     python -B -m support.containers build "$1"
 
-container-test package:
+test package:
     python -B -m support.containers test "$1"
+
+install package:
+    python -B -m support.install "$1"
+
+new package:
+    python -B -m support.scaffold "$1"

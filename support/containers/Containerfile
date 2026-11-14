@@ -1,8 +1,9 @@
 ARG BASE_IMAGE=scratch
 FROM ${BASE_IMAGE} AS base
 ARG ARCH_SNAPSHOT
-RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCH_SNAPSHOT" > /etc/pacman.d/mirrorlist \
-    && pacman -Syu --needed --noconfirm python \
+RUN sed -i -E '/^[[:space:]]*(NoExtract[[:space:]]*=|DisableSandbox(Filesystem|Syscalls)?[[:space:]]*$)/d' /etc/pacman.conf \
+    && printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCH_SNAPSHOT" > /etc/pacman.d/mirrorlist \
+    && setpriv --no-new-privs pacman -Syu --needed --noconfirm python \
     && pacman -Scc --noconfirm \
     && useradd --create-home --uid 1000 builder \
     && install -d /input /archives /output /work /opt/pkgconf/support/containers \
@@ -12,9 +13,11 @@ WORKDIR /opt/pkgconf
 ENTRYPOINT ["/usr/bin/python", "-B", "-m", "support.containers.worker"]
 
 FROM base AS runtime
-COPY __init__.py config.py worker.py /opt/pkgconf/support/containers/
+COPY recipes.py artifacts.py diagnostics.py /opt/pkgconf/support/
+COPY __init__.py worker.py /opt/pkgconf/support/containers/
 
 FROM base AS tools
-RUN pacman -S --needed --noconfirm base-devel just ruff shellcheck shfmt namcap devtools nodejs codespell typos desktop-file-utils \
+RUN setpriv --no-new-privs pacman -S --needed --noconfirm base-devel just ruff shellcheck shfmt namcap nodejs codespell typos desktop-file-utils \
     && pacman -Scc --noconfirm
-COPY __init__.py config.py worker.py /opt/pkgconf/support/containers/
+COPY recipes.py artifacts.py diagnostics.py /opt/pkgconf/support/
+COPY __init__.py worker.py /opt/pkgconf/support/containers/

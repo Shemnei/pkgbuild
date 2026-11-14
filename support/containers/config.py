@@ -1,15 +1,12 @@
-"""Recipe contracts and a source-only snapshot shared by all container jobs."""
+"""Locked image configuration and source-only container snapshots."""
 
 import datetime
-import hashlib
 import json
 import re
 import shutil
-import tomllib
-from pathlib import Path
 
-PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9@+._-]*-local")
-DEPENDENCY = re.compile(r"[a-zA-Z0-9@+._-]+(?:[<>=]{1,2}[^\s/]+)?")
+from support.recipes import declared_inputs, digest, select, side_inputs, srcinfo
+
 ROOT_FILES = ("AGENTS.md", "README.md", "justfile", "pyproject.toml", ".editorconfig", ".gitignore")
 RECIPE_FILES = ("PKGBUILD", ".SRCINFO", "README.md", "AGENTS.md", "validation.toml", "namcap.toml")
 
@@ -27,77 +24,7 @@ def image_lock(path):
     return lock
 
 
-def recipes(root):
-    if (root / "packages").is_symlink():
-        raise ValueError("The package directory may not be a symlink")
-    found = {
-        path.parent.name: path.parent for path in sorted((root / "packages").glob("*/PKGBUILD"))
-    }
-    if not found:
-        raise ValueError("No package recipes found")
-    if any(path.is_symlink() for path in found.values()):
-        raise ValueError("Recipe directories may not be symlinks")
-    if any(not PACKAGE_NAME.fullmatch(name) for name in found):
-        raise ValueError("Recipe directory names must be valid package names ending in -local")
-    return found
-
-
-def recipe_config(directory):
-    path = directory / "validation.toml"
-    config = tomllib.loads(path.read_text()) if path.exists() else {}
-    if set(config) - {"local_dependencies", "local_build_dependencies", "test_dependencies"}:
-        raise ValueError(f"Unknown validation settings in {path}")
-    result = {}
-    for key in ("local_dependencies", "local_build_dependencies", "test_dependencies"):
-        values = config.get(key, [])
-        pattern = DEPENDENCY if key == "test_dependencies" else PACKAGE_NAME
-        if not isinstance(values, list) or any(
-            not isinstance(value, str) or not pattern.fullmatch(value) for value in values
-        ):
-            raise ValueError(f"Invalid {key} in {path}")
-        if len(set(values)) != len(values):
-            raise ValueError(f"Duplicate {key} in {path}")
-        result[key] = values
-    if set(result["local_dependencies"]) & set(result["local_build_dependencies"]):
-        raise ValueError(f"Local dependencies cannot be both runtime and build-only in {path}")
-    return result
-
-
-def dependency_order(root, package, runtime=False):
-    available = recipes(root)
-    ordered, visiting = [], []
-
-    def visit(name):
-        if name not in available:
-            raise ValueError(f"Unknown local recipe: {name}")
-        if name in visiting:
-            raise ValueError(f"Local dependency cycle: {' -> '.join([*visiting, name])}")
-        if name in ordered:
-            return
-        visiting.append(name)
-        config = recipe_config(available[name])
-        dependencies = config["local_dependencies"]
-        if not runtime:
-            dependencies = [*dependencies, *config["local_build_dependencies"]]
-        for dependency in dependencies:
-            visit(dependency)
-        visiting.pop()
-        ordered.append(name)
-
-    visit(package)
-    return ordered
-
-
-def srcinfo(text):
-    fields = {}
-    for line in text.splitlines():
-        key, separator, value = line.strip().partition(" = ")
-        if separator:
-            fields.setdefault(key, []).append(value)
-    return fields
-
-
-def snapshot(root, destination):
+def snapshot(root, destination, packages=None, *, include_sources=True, extra_inputs=()):
     """Copy declared inputs, never downloads, build trees, VCS state, or user dotfiles."""
     selected = set()
 
@@ -122,32 +49,19 @@ def snapshot(root, destination):
         add(root / name)
     for name in ("support", "tests"):
         add(root / name)
-    for directory in recipes(root).values():
+    for path in extra_inputs:
+        add(path)
+    directories = select(root) if packages is None else [select(root, name)[0] for name in packages]
+    for directory in directories:
         for name in RECIPE_FILES:
             path = directory / name
             if path.exists() or path.is_symlink():
                 add(path)
         if (directory / "tests").exists():
             add(directory / "tests")
-        fields = srcinfo((directory / ".SRCINFO").read_text())
-        for key, values in fields.items():
-            if key == "source" or key.startswith("source_"):
-                for value in values:
-                    source = value.split("::", 1)[-1]
-                    if "://" in source:
-                        continue
-                    relative = Path(source)
-                    if relative.is_absolute() or ".." in relative.parts:
-                        raise ValueError(f"Local source escapes recipe: {source}")
-                    path = directory / relative
-                    # Check every parent too; a symlinked directory must not leak host files.
-                    if any(
-                        parent.is_symlink() for parent in (path, *path.parents) if parent != root
-                    ):
-                        raise ValueError(f"Symlinked local source: {source}")
-                    if not path.is_file():
-                        raise ValueError(f"Local source must be a regular file: {source}")
-                    add(path)
+        if include_sources:
+            for path in declared_inputs(directory, srcinfo((directory / ".SRCINFO").read_text())):
+                add(path)
     manifest = {}
     for source in sorted(selected):
         relative = source.relative_to(root)
@@ -155,5 +69,28 @@ def snapshot(root, destination):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
         target.chmod(source.stat().st_mode & 0o777)
-        manifest[str(relative)] = hashlib.sha256(target.read_bytes()).hexdigest()
+        manifest[str(relative)] = digest(target)
     return manifest
+
+
+def metadata_snapshot(root, package, probe, destination, original):
+    """Resolve only the file declarations requested by the isolated metadata probe."""
+    fields = json.loads((probe / "metadata-inputs.json").read_text())
+    if (
+        not isinstance(fields, dict)
+        or set(fields) != {"install", "changelog"}
+        or any(
+            not isinstance(values, list)
+            or len(values) > 1
+            or any(not isinstance(value, str) or not value for value in values)
+            for values in fields.values()
+        )
+    ):
+        raise ValueError("Invalid metadata input declarations")
+    extra = list(side_inputs(select(root, package)[0], fields))
+    updated = snapshot(root, destination, [package], include_sources=False, extra_inputs=extra)
+    for name in ("PKGBUILD", ".SRCINFO"):
+        key = f"packages/{package}/{name}"
+        if updated.get(key) != original.get(key):
+            raise ValueError(f"{name} changed during metadata discovery; rerun just srcinfo")
+    return updated

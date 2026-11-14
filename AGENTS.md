@@ -107,3 +107,16 @@ calling a package release-ready. Missing tools and unexplained findings are
 failures, not successful skips. Exceptions must be narrow, justified, and
 documented beside the affected recipe. Preserve unrelated user work and report
 exactly what was and was not verified.
+
+The public `just check`, `verify`, `srcinfo`, `build`, and `test` commands use
+containers; keep those validation commands container-only. Use
+`just srcinfo <pkgname>` for selected metadata generation and `just new <pkgname>`
+for the deliberately unfinished standalone skeleton. `just install <pkgname>`
+is the explicit local-install exception: run `makepkg --syncdeps --install` as
+the normal user in the selected recipe directory, retaining normal PKGBUILD
+`check()` and pacman prompts. It must not invoke containers or the separate
+installed-package test workflow, require prior build artifacts, or bypass
+confirmation. Dependencies unavailable from pacman repositories must be installed
+separately; do not silently build unrelated recipes. Genuine clean-chroot
+validation uses devtools on an Arch host or VM, not privileged containers. Shared
+recipe contracts belong in `support/`, not in container transport modules.

@@ -5,7 +5,9 @@ import json
 import shlex
 import shutil
 import subprocess
+import tempfile
 import uuid
+from pathlib import Path
 
 
 def command(*arguments, capture=False):
@@ -61,10 +63,17 @@ class Engine:
             )
 
     def image(self, context, lock, target, output):
+        inputs = {name: context / name for name in ("Containerfile", "__init__.py", "worker.py")}
+        inputs.update(
+            {
+                name: context.parent / name
+                for name in ("recipes.py", "artifacts.py", "diagnostics.py")
+            }
+        )
         digest = hashlib.sha256(json.dumps(lock, sort_keys=True).encode())
-        for name in ("Containerfile", "__init__.py", "config.py", "worker.py"):
+        for name, path in sorted(inputs.items()):
             digest.update(name.encode())
-            digest.update((context / name).read_bytes())
+            digest.update(path.read_bytes())
         tag = f"pkgconf-validation:{digest.hexdigest()[:20]}-{target}"
         exists = subprocess.run(
             [self.name, "image", "inspect", tag], capture_output=True, text=True, check=False
@@ -84,11 +93,15 @@ class Engine:
                 f"BASE_IMAGE={lock['base_image']}",
                 "--build-arg",
                 f"ARCH_SNAPSHOT={lock['arch_snapshot'].replace('-', '/')}",
-                "--file",
-                str(context / "Containerfile"),
-                str(context),
             ]
-            status = logged(arguments, output / f"image-{target}.log")
+            # Send only reviewed image inputs, not the repository or host caches.
+            with tempfile.TemporaryDirectory(prefix="pkgconf-image-") as temporary:
+                for name, path in inputs.items():
+                    shutil.copyfile(path, Path(temporary) / name)
+                status = logged(
+                    [*arguments, "--file", str(Path(temporary) / "Containerfile"), temporary],
+                    output / f"image-{target}.log",
+                )
             if status:
                 raise RuntimeError(f"Container image build failed ({status}); see {output}")
         identity = command(
@@ -110,7 +123,7 @@ class Engine:
             "--tmpfs",
             "/tmp:rw,nosuid,nodev,mode=1777",
         ]
-        if phase in {"check", "lint", "smoke"}:
+        if phase in {"check", "metadata-inputs", "srcinfo", "lint", "smoke"}:
             arguments.extend(["--network", "none"])
         arguments.extend([image, phase])
         if package:
@@ -125,14 +138,13 @@ class Engine:
         if not container or any(character not in "0123456789abcdef" for character in container):
             raise ValueError(f"Unexpected container identifier: {container!r}")
         started = False
+        status = None
         try:
             command(self.name, "cp", f"{snapshot}/.", f"{container}:/input")
             for name, directory in archives.items():
                 command(self.name, "cp", directory, f"{container}:/archives/{name}")
             started = True
             status = logged([self.name, "start", "--attach", container], output / "console.log")
-            if not status and commit:
-                command(self.name, "commit", container, commit)
             return status
         finally:
             if started:
@@ -141,7 +153,11 @@ class Engine:
                 except (OSError, subprocess.CalledProcessError):
                     print(f"Artifact export failed; preserving container {container}", flush=True)
                     raise
-            command(self.name, "rm", "--force", container)
+            try:
+                if status == 0 and commit:
+                    command(self.name, "commit", container, commit)
+            finally:
+                command(self.name, "rm", "--force", container)
 
     def runtime_tag(self):
         return f"pkgconf-validation:installed-{uuid.uuid4().hex}"

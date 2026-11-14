@@ -1,186 +1,202 @@
 # Disposable Arch validation
 
-This is generic repository infrastructure. Application commands, dependencies,
-assertions, exceptions, and validation limitations belong beside each recipe.
-Recipes remain standalone makepkg inputs; none sources this framework.
+The public workflow is `just check [package]`, `just verify [package]`,
+`just discover <package>`, `just srcinfo <package>`, `just build <package>`,
+and `just test <package>`.
+All run in Docker/Podman. `just install <package>` is separate: it runs native
+`makepkg --syncdeps --install` in the selected recipe directory without containers
+or the installed-package test workflow. See the
+[root README](../../README.md) for prerequisites, onboarding, host installation,
+and genuine clean-chroot release validation.
 
-## Commands
+## Ownership and contracts
 
-```text
-just container-check
-just container-build <pkgname>
-just container-test <pkgname>
+- `support/recipes.py`: canonical discovery, selected recipes, `.SRCINFO` parsing,
+  declared local inputs, integrity policy, validation settings, and dependency plans.
+- `support/artifacts.py`: exact archive membership and SHA-256 manifests shared by
+  build validation, host collection, archive lint, and installation.
+- `support/repo.py`: in-container lint, source verification, and regression checks.
+- `support/discovery.py`: advisory source leads, coverage inventory, and review reports.
+- `support/install.py`: local makepkg build/install with dependency resolution and
+  normal pacman prompts; no container validation or engine access.
+- `support/containers/config.py`: pinned image lock and source-only snapshots.
+- `engine.py`: Docker/Podman transport, image caching, logs, scoped cleanup.
+- `worker.py`: container setup and unprivileged recipe/application commands.
+- `__main__.py`: job orchestration, evidence, and selected metadata export.
+
+Recipes remain ordinary makepkg inputs and never import this framework.
+Application dependencies, commands, tests, exceptions, and limitations belong
+beside each recipe, not in a global package registry.
+
+## Package configuration
+
+An optional recipe-local `validation.toml` selects local providers and extra
+installed-test tools:
+
+```toml
+local_dependencies = ["dependency-local"]
+local_build_dependencies = ["build-tool-local"]
+test_dependencies = ["zsh"]
 ```
 
-The host needs Python 3.13+, just, and a working Docker or Podman installation.
-It need not be Arch or have makepkg, Bun, Node.js, or the lint toolchain installed.
-All supported images currently target Linux x86_64. Engine selection prefers
-Podman when installed, otherwise Docker; an unusable engine fails rather than
-silently switching to a different security model. Override explicitly:
+Unknown fields, invalid names, duplicate entries, unknown recipes, and dependency
+cycles fail. These declarations supplement, never replace, real PKGBUILD dependency
+declarations; pacman checks versioned dependencies and provisions normally.
 
-```sh
-CONTAINER_ENGINE=podman just container-check
-python -B -m support.containers check --engine docker --require-rootless
-```
+The three dependency plans have different meanings:
 
-`--require-rootless` rejects a rootful daemon. Without it, rootful operation emits
-a warning and is recorded in the report. Normal Docker-group membership is
-effectively host-root access. The framework does not install/configure an
-engine, alter its permissions, enable its service, or invoke host sudo.
+- Build order follows runtime and build-only edges recursively.
+- A recipe's build installation contains its direct local runtime/build providers
+  and those providers' runtime closures, not their build-only tools.
+- Runtime installation contains the target and only its runtime closure.
 
-`container-check` prepares the tools image and runs `just check`. `container-build`
-builds each local dependency in topological order, then the selected recipe.
-Each build runs source verification and makepkg's normal build/check/package
-phases. All archives are passed through the existing strict `package-lint` path.
-An optional recipe-local `namcap.toml` records exact reviewed warnings, their
-reasons, the package name/version, and audited build-package versions. The shared
-archive checker verifies those pins against `.PKGINFO`/`.BUILDINFO` and rejects
-new, changed, duplicated, or missing findings. Errors cannot be excepted, and
-PKGBUILD lint does not use archive exceptions. This file is copied and hashed in
-the source snapshot; no package-specific exception lives in the framework.
+Thus a generator needed to build a library is built first, but does not leak into
+an application's build environment merely because the application uses that library.
+Each recipe receives a fresh build container. Runtime images never inherit the
+builder filesystem or build-only package installation.
 
-`container-test` always performs a fresh build; it does not pick up an arbitrary
-old archive. It additionally creates a fresh runtime container for each built
-recipe, installs its local runtime closure and declared runtime dependencies
-with pacman, snapshots that disposable installation, and runs its installed test
-in a new network-disabled container. An archive-lint failure does not prevent
-collecting runtime evidence, but the overall command still fails. A failed build
-stops dependent builds instead of testing incomplete or stale output.
+`tests/installed.py` runs with `/usr/bin/python -B` as UID/GID 1000 from an empty
+writable directory. Test actual installed paths, isolate application state, and
+own/stop every child process. Fail on absent tools or behavior; do not start
+persistent services. Python is already in the runtime harness, which can mask a
+missing Python runtime dependency and must be considered during dependency review.
+`test_dependencies` adds only genuine test tools, not undeclared runtime requirements.
 
-## Adding a package
+## Inputs and archives
 
-1. Add a self-contained `packages/<name>-local/PKGBUILD`, local sources, and
-   generated `.SRCINFO`. Keep the README and Python regression tests there.
-2. Add `packages/<name>-local/tests/installed.py`. It is run by `/usr/bin/python
-   -B` as UID/GID 1000, from an empty writable directory. Exercise the actual
-   installed paths, isolate application state in a temporary home, own and stop
-   every spawned process, and fail on missing tools or behavior. Never start a
-   persistent service or use host user state. Its exception/nonzero exit fails
-   the job. Python is a test-harness dependency present in the runtime base;
-   account for that when reviewing missing runtime dependencies.
-3. If needed, add `validation.toml` beside the recipe:
+A snapshot contains shared framework/tests, explicit root configuration, selected
+recipe metadata/docs/config/tests, local `source`/`source_<arch>` files, and
+`install`/`changelog` inputs. Normal selected jobs include the local build closure;
+unrelated unfinished recipes do not block them. Whole-repository check/verify jobs
+include all recipes. Metadata generation copies the selected PKGBUILD and recipe
+support files without resolving old source declarations, allowing initial or stale
+`.SRCINFO` to be regenerated. Top-level PKGBUILD metadata must be self-contained.
+An initial unprivileged Bash probe reads only the `install`/`changelog` declarations;
+the host validates and copies those exact paths before makepkg generates metadata.
+This supports new recipes without copying arbitrary files or parsing Bash with
+regular expressions. Both probe and generation are network-disabled and logged.
 
-   ```toml
-   local_dependencies = ["dependency-local"]
-   local_build_dependencies = ["build-tool-local"]
-   test_dependencies = ["zsh"]
-   ```
+Discovery snapshots only its selected recipe, never its local-provider closure.
+It runs the shared recipe checks and scanner through `support.repo` as the builder.
+Makepkg verifies/extracts sources with `--nobuild --noprepare --nodeps`, leaving
+downstream `prepare()` transformations unapplied. No build dependencies or language
+dependencies are installed. Source-fetcher requirements unavailable in the tools
+image fail normally; they are not successful skips. PKGBUILD top-level code and
+source verification/version functions remain trusted recipe execution, not inert
+data. See [patch-boundary discovery](../../README.md#finding-patch-boundaries)
+for report semantics and coverage limitations.
 
-   All settings are optional lists; unknown fields, invalid names, duplicates,
-   unknown recipes, and dependency cycles fail. `local_dependencies` selects
-   in-repository providers needed at runtime and build time; build-only local
-   dependencies belong in `local_build_dependencies`. These supplement, not
-   replace, real dependency declarations in the PKGBUILD. Pacman's versioned
-   dependency checks still apply. `test_dependencies` adds repository tools to
-   the disposable test installation only; do not use it to conceal missing
-   application runtime dependencies.
-4. Run the container commands. No package names, application commands, or
-   dependency ordering should be added to shared scripts or root tests.
+Remote downloads, `src/`, `pkg/`, VCS state, host dotfiles, and caches are not
+copied. Declared paths must be regular files without symlinks or path traversal.
+Architecture-specific arrays share the same integrity policy as generic sources:
+SHA-256, SHA-384, SHA-512, or BLAKE2b; weak-only or skipped integrity is rejected.
+One output package matching the `-local` directory is an explicit repository rule.
 
-Root framework tests use synthetic recipes. Existing recipe Python tests are
-discovered normally by `just test`; `installed.py` is deliberately a separate
-contract so native repository checks never accidentally run installed software.
+After makepkg, `artifacts.json` records the exact `--packagelist` filenames and
+SHA-256 hashes. Unexpected/missing archives, symlinks, or changed bytes fail.
+Collection, lint, and installation all consume this manifest instead of selecting
+new archives with independent globs. A recipe-local `namcap.toml` may record exact
+reviewed warnings with reasons and package/version/build-package pins. Errors and
+PKGBUILD warnings cannot be excepted; stale or changed exceptions fail.
 
-## Input, privilege, and network boundaries
+Archive lint first installs the target's runtime closure into a disposable tools
+image, without installed-test extras. This gives namcap the actual dependency
+owners and libraries rather than false "uninstalled dependency" findings from
+the bare lint image. The lint job itself remains network-disabled. This image
+is discarded and never reused for installed-app testing.
 
-- Inputs are copied, not host-mounted. A source-only snapshot includes shared
-  framework/tests, root repository configuration, recipe metadata/docs/config,
-  recipe tests, and local files declared by committed `.SRCINFO`. Remote source
-  downloads, `src/`, `pkg/`, VCS state, arbitrary root dotfiles, caches, and host
-  credentials are not copied. Symlinked inputs and local-source path traversal
-  fail explicitly. Extra fixtures should live under recipe `tests/`, not a new
-  global allowlist or package-specific framework branch.
-- The image build installs the shared toolchain as container root. Job setup
-  installs packages as container root. PKGBUILD evaluation (including dependency
-  metadata extraction), makepkg, linters, tests, and application processes run as
-  the unprivileged builder with a minimal environment. No host tokens, sockets,
-  user configuration, or package-manager state are forwarded.
-- Builder/test `TMPDIR` points to the disposable, builder-owned `/work/tmp` so
-  compiled test programs can execute without removing `/tmp` mount protections.
-  Installed test helpers should preserve that environment or use their own
-  isolated writable home for temporary executable files.
-- The tools image contains generic development tools; the runtime image does
-  not inherit the builder's filesystem or installed build dependencies. Local
-  package archives are explicitly transferred and installed with pacman.
-- Default seccomp and namespace isolation remain in effect. Jobs request
-  `no-new-privileges`, a PID limit, and a private temporary filesystem. There are
-  no privileged containers, host namespaces, added capabilities, sandbox-disable
-  flags, or published ports. Docker/Podman's default container-root capabilities
-  are retained for pacman setup; application subprocesses drop UID, GID, and
-  supplementary groups. A container is not a VM or a proof against malicious
-  kernel exploits or every form of network reporting.
-- Dependency setup tolerates dated mirrors that pause beyond pacman's default
-  low-speed cutoff, but each install has a 15-minute overall deadline. This only
-  changes transfer timeout handling: package signatures, checksum verification,
-  the download sandbox, and container isolation remain enabled. A stalled or
-  failed transaction still fails the job and preserves its diagnostics.
-- Image/package setup and builds need network access. Repository checks, archive
-  lint, and installed tests run with `--network none`. Loopback server tests work;
-  external provider/integration tests require separate, explicitly documented
-  validation. Runtime privacy tests need additional evidence beyond disabled
-  networking to establish that reporting implementations are actually removed.
+## Privilege and network boundaries
+
+- Host prerequisites: Python 3.13+, just, and a working engine. Prefer rootless
+  operation. Podman is selected when installed, otherwise Docker; a broken engine
+  fails rather than silently changing security models. Set `CONTAINER_ENGINE` or
+  pass `--engine`. `--require-rootless` rejects rootful engines; otherwise their
+  effective host-root authority is warned about and recorded.
+- No host workspace, home, credentials, engine socket, package state, or namespaces
+  are mounted. Image build contexts contain only explicitly selected framework
+  files, not the repository or host caches. Inputs and archives are copied.
+- Only image/package setup runs as container root. PKGBUILD evaluation, makepkg,
+  linters, tests, and applications drop UID/GID/supplementary groups and receive
+  a minimal environment. No PKGBUILD is sourced as root.
+- Jobs retain default seccomp/namespace isolation, request `no-new-privileges`,
+  a PID limit, and private `/tmp`. There are no privileged flags, host namespaces,
+  extra capabilities, published ports, or sandbox-disable flags. Container-root
+  default capabilities remain available for package setup.
+- Builder/test `TMPDIR=/work/tmp` is executable and builder-owned without weakening
+  `/tmp` protections. Application tests should preserve it or use isolated homes.
+- Image/package setup, source verification/extraction (including discovery), and
+  builds need network access.
+  Repository checks, metadata generation, archive lint, and installed tests use
+  `--network none`; loopback still works. Initial image creation may need network
+  access for any command. Disabled networking is not proof that reporting code
+  was removed, and ordinary provider/network integrations need separate tests.
+- Dependency transactions retain signatures and download sandboxing. They tolerate
+  dated mirrors' low-speed pauses but have a finite 15-minute overall deadline.
+- The official base's active `NoExtract` and `DisableSandbox*` overrides are removed
+  before package setup. Validation must install docs/man pages normally and use
+  pacman's download sandbox, not inherit image-minimization or compatibility
+  exceptions. Every worker resolves pacman configuration and rejects those
+  directives; unsupported host kernels fail instead of disabling sandboxing.
+   Image-build downloads explicitly set `no_new_privs` with `setpriv` before
+   pacman applies Landlock; jobs request the same restriction through the engine.
+   This permits Landlock on engines that do not grant the capabilities otherwise
+   needed to enter it. If applying Landlock still fails, use a compatible
+   engine/host or VM rather than unconfined security profiles, privileged builds,
+   or download-sandbox bypasses.
 
 ## Evidence and cleanup
 
-Each invocation creates `.artifacts/containers/<timestamp>-<id>/`. Use
-`python -B -m support.containers test <pkgname> --output <new-directory>` to choose
-another new location. Existing output directories are never overwritten.
+Each invocation creates a new `.artifacts/containers/<timestamp>-<id>/`:
 
-- `sources.json`: SHA-256 of every copied input.
-- `report.json`: action, dependency order, engine/rootless status, locked base and
-  repository date, local image identities, stage exit codes, archive hashes,
-  final status, and any orchestration error.
-- `image-*.log`, `<phase>-<recipe>/console.log`: image-build and job output.
-- `build-<recipe>/`: resulting archives and makepkg phase logs, including on
-  failed jobs when available.
+- `sources.json`: SHA-256 of copied inputs.
+- `report.json`: action/selection, dependency order, engine/rootless status, lock,
+  image identities, stage results, archive hashes, overall status, and errors.
+- `image-*.log`, `<phase>-<recipe>/console.log`: image-build/job diagnostics,
+  including captured subprocess failures.
+- `build-<recipe>/`: archives, exact `artifacts.json`, and makepkg logs.
+- `srcinfo-<recipe>/<recipe>/.SRCINFO`: generated metadata before host export.
+- `metadata-inputs-<recipe>/`: declared side-input probe and its diagnostics.
+- `discover-<recipe>/discovery.txt` and `discovery.json`: advisory leads with review
+  questions, source-file hashes, exclusions, and errors. Leads alone never fail;
+  incomplete scans do, after saving partial reports. Extraction failures retain
+  console diagnostics and a failed stage rather than a misleading empty scan.
 
-Only containers and temporary runtime-image snapshots created by this invocation
-are removed. Shared tools/runtime images remain cached. No global engine prune
-or unrelated container/image deletion is performed. Logs and artifacts remain
-even when validation fails or a later dependency cannot build.
-If exporting artifacts fails, the job container is preserved and its identifier
-is printed for manual recovery instead of deleting the only remaining copy.
+Use `python -B -m support.containers <action> [package] --output <new-directory>`
+to select a different evidence path. Existing output directories are never
+overwritten. Metadata export changes only the selected recipe and refuses a
+concurrently edited PKGBUILD. Nothing is installed on the host.
 
-The image lock and dated Arch repositories constrain inputs; this is not a claim
-of verified reproducible or offline builds. Dependency fetching by each recipe
-must still use its pinned, integrity-checked lockfiles and lifecycle policy.
+Build failures stop dependent builds. Archive-lint findings do not suppress runtime
+tests, but still fail the invocation. Failed jobs keep their reports/artifacts.
+Only invocation-owned containers and temporary installed images are removed;
+shared images remain cached, with no global prune. Artifact-export failure keeps
+the container and prints its ID for recovery. Installation images are committed
+only after successful artifact export, avoiding orphan images on export failure.
 
-## Image maintenance and release scope
+## Image maintenance and validation scope
 
-`image.lock.json` pins the official Arch Linux x86_64 base by registry manifest
-digest and the Arch Linux Archive repository date. The initial manifest was
-resolved from the official `library/archlinux` registry on 2026-11-13; its upstream
-image revision is `457808cdaf8ca50c14692f1099c2efd63049bd00` (2026-11-09).
-Changing either input is an explicit reviewed maintenance operation: verify the
-official image provenance/digest, choose a usable dated repository snapshot,
-update the lock, rebuild both images, and rerun validation. Never substitute a
-mutable image tag, disable signature checks, or turn off pacman's download
-sandbox to get a build to pass.
+`image.lock.json` pins the official Arch x86_64 base by digest and a dated Arch
+repository snapshot. Updating either is a reviewed maintenance operation: verify
+provenance/digest, choose a usable snapshot, rebuild both images, and rerun checks.
+Never substitute mutable tags, disable signatures, or weaken download sandboxing.
+The Containerfile's inert `scratch` default cannot build without validated inputs
+supplied by the helper. Cache identities hash the lock and every in-image input.
 
-Local image cache names are derived from the lock, Containerfile, and in-image
-worker code. Rootless Podman and Docker share the same CLI contract, but each
-engine/backend must be exercised before claiming it is verified.
-The Containerfile's inert `scratch` default deliberately cannot build on its own:
-use the helper, which validates the lock and supplies the pinned base explicitly.
+Pinning constrains inputs; it is not verified reproducibility or offline building.
+Dependency fetching still follows each recipe's frozen/lifecycle policy. Exercise
+each actual engine/backend before claiming support is verified; mocked command
+tests are not real rootless Docker or Podman evidence. Keep detailed run evidence
+in artifacts rather than dated documentation snapshots.
 
-A passing container run does not replace the repository's genuine devtools
-clean-chroot gate. Installed systemd lifecycle, interactive TUI/browser behavior,
-model-provider requests, and live network audits remain separate recipe-specific
-release gates. Run privileged clean-chroot jobs on an appropriately configured
-Arch host, disposable VM, or CI runner rather than weakening container isolation.
+Containers do not replace genuine devtools clean-chroot builds, live service
+lifecycle, interactive/browser/provider checks, or live privacy audits. Use an
+appropriately configured Arch host, VM, or CI runner for those gates, not
+privileged containers or disabled sandboxes.
 
-## Framework validation evidence (2026-11-13)
-
-The native checks and Docker `container-check` pass. The latter exercises all
-53 generic/recipe tests plus format, lint, syntax, metadata, and local-source
-integrity gates inside the pinned Arch tools image, without network access.
-Evidence is retained in `.artifacts/containers/20261113T004916Z-6862ff5a/`.
-Both tools and runtime images have been built with Docker's default sandbox.
-Real failed build/install/test jobs retain their logs and fail the invocation;
-mocked tests also cover dependency ordering, runtime closures, cleanup/export
-failures, rootless enforcement, and both engines' command formats.
-
-The available Docker daemon is rootful. Rootless Docker and real Podman execution
-have not been validated here; unit tests are not a substitute for those runs.
-Package build, archive, and application-runtime outcomes are recorded beside each
-recipe rather than treated as generic framework success.
+Run `python -B -m tests.container_smoke` for an opt-in real-engine framework test.
+It uses a tiny synthetic recipe with architecture-specific SHA-512 sources,
+non-source install/changelog files, metadata bootstrapping, archive lint, fresh
+installation, discovery of verified sources before `prepare()` transformations,
+and a deliberately failed metadata probe whose diagnostics and
+unchanged host metadata are asserted. Inputs and evidence remain under
+`.artifacts/framework-smoke/`, including on failure. It does not build applications.

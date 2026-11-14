@@ -1,9 +1,6 @@
-import hashlib
 import importlib.util
 import io
 import json
-import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +8,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import call, patch
+
+from support.recipes import select, validate_integrity
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,69 +29,82 @@ class RepositoryTests(unittest.TestCase):
             (directory / "PKGBUILD").write_text(f"pkgname={name}\n")
         self.recipe = self.root / "packages" / "example-local"
 
-    def test_build_install_and_chroot_use_the_selected_recipe(self):
-        commands = {
-            "build": ("makepkg", "--cleanbuild", "--log"),
-            "install": ("makepkg", "--cleanbuild", "--log", "--syncdeps", "--install"),
-            "chroot": ("extra-x86_64-build",),
-        }
-        for directory in self.repo.recipes():
-            for command, arguments in commands.items():
-                with (
-                    self.subTest(package=directory.name, command=command),
-                    patch("sys.argv", ["repo.py", command, directory.name]),
-                    patch.object(self.repo, "run") as run,
-                ):
-                    self.repo.main()
-                    run.assert_called_once_with(*arguments, cwd=directory)
-
-    def test_install_rejects_missing_or_unknown_packages_before_running_commands(self):
-        for arguments in ([], ["unknown-local"], ["../example-local"], ["--all"]):
+    def test_removed_native_commands_are_rejected(self):
+        for command in ("build", "install", "chroot", "srcinfo"):
             with (
-                self.subTest(arguments=arguments),
-                patch("sys.argv", ["repo.py", "install", *arguments]),
-                patch.object(self.repo, "run") as run,
-                self.assertRaises((RuntimeError, SystemExit)),
+                self.subTest(command=command),
+                patch("sys.argv", ["repo.py", command, self.recipe.name]),
                 patch("sys.stderr", new_callable=io.StringIO),
+                self.assertRaises(SystemExit),
+            ):
+                self.repo.main()
+
+    def test_verify_uses_only_the_selected_recipe(self):
+        with (
+            patch("sys.argv", ["repo.py", "verify", self.recipe.name]),
+            patch.object(self.repo, "metadata") as metadata,
+            patch.object(self.repo, "validate_integrity") as integrity,
+            patch.object(self.repo, "run") as run,
+        ):
+            self.repo.main()
+        metadata.assert_called_once_with(self.recipe)
+        integrity.assert_called_once_with(self.recipe)
+        run.assert_called_once_with("makepkg", "--verifysource", cwd=self.recipe)
+
+    def test_discovery_checks_metadata_and_integrity_before_extracting_without_prepare(self):
+        output = self.root / "output"
+        sources = self.recipe / "src" / "upstream"
+        sources.mkdir(parents=True)
+        (sources / "server.js").write_text("checkForUpdates();\n")
+        with (
+            patch("sys.argv", ["repo.py", "discover", self.recipe.name, "--output", str(output)]),
+            patch.object(self.repo, "metadata") as metadata,
+            patch.object(self.repo, "validate_integrity") as integrity,
+            patch.object(self.repo, "run") as run,
+        ):
+            calls = unittest.mock.Mock()
+            calls.attach_mock(metadata, "metadata")
+            calls.attach_mock(integrity, "integrity")
+            calls.attach_mock(run, "run")
+            self.repo.main()
+        self.assertEqual(
+            calls.mock_calls,
+            [
+                call.metadata(self.recipe),
+                call.integrity(self.recipe),
+                call.run("makepkg", "--nobuild", "--noprepare", "--nodeps", cwd=self.recipe),
+            ],
+        )
+        report = json.loads((output / "discovery.json").read_text())
+        self.assertEqual(report["findings"][0]["path"], "upstream/server.js")
+        self.assertEqual(report["package"], self.recipe.name)
+
+    def test_discovery_stops_on_metadata_integrity_or_extraction_failure(self):
+        for boundary in ("metadata", "validate_integrity", "run"):
+            with (
+                self.subTest(boundary=boundary),
+                patch("sys.argv", ["repo.py", "discover", self.recipe.name, "--output", "out"]),
+                patch.object(self.repo, "metadata"),
+                patch.object(self.repo, "validate_integrity"),
+                patch.object(self.repo, "run"),
+                patch.object(self.repo, boundary, side_effect=RuntimeError("fixture failure")),
+                patch.object(self.repo, "scan_sources") as scan,
+                self.assertRaisesRegex(RuntimeError, "fixture failure"),
+            ):
+                self.repo.main()
+            scan.assert_not_called()
+
+    def test_discovery_requires_selected_recipe_and_output(self):
+        for args in ([], [self.recipe.name], ["--output", "out"]):
+            with (
+                self.subTest(args=args),
+                patch("sys.argv", ["repo.py", "discover", *args]),
+                patch("sys.stderr", new_callable=io.StringIO),
+                patch.object(self.repo, "run") as run,
+                self.assertRaises(SystemExit),
             ):
                 self.repo.main()
             run.assert_not_called()
-
-    def test_install_propagates_makepkg_failures_without_retrying(self):
-        error = subprocess.CalledProcessError(1, "makepkg")
-        with (
-            patch("sys.argv", ["repo.py", "install", self.recipe.name]),
-            patch.object(self.repo, "run", side_effect=error) as run,
-            self.assertRaises(subprocess.CalledProcessError) as raised,
-        ):
-            self.repo.main()
-        self.assertIs(raised.exception, error)
-        run.assert_called_once()
-
-    def test_just_install_dispatch_and_exit_status_with_a_fake_makepkg(self):
-        (self.root / "support").mkdir()
-        shutil.copyfile(ROOT / "support" / "repo.py", self.root / "support" / "repo.py")
-        shutil.copyfile(ROOT / "justfile", self.root / "justfile")
-        binaries = self.root / "bin"
-        binaries.mkdir()
-        makepkg = binaries / "makepkg"
-        for status in (0, 17):
-            makepkg.write_text(f'#!/bin/sh\npwd\nprintf "%s\\n" "$@"\nexit {status}\n')
-            makepkg.chmod(0o755)
-            result = subprocess.run(
-                ["just", "install", self.recipe.name],
-                cwd=self.root,
-                env={**os.environ, "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}"},
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            with self.subTest(status=status):
-                self.assertEqual(result.returncode == 0, status == 0, result.stderr)
-                self.assertEqual(
-                    result.stdout.splitlines()[1:],
-                    [str(self.recipe), "--cleanbuild", "--log", "--syncdeps", "--install"],
-                )
 
     def test_namcap_findings_fail_even_when_the_tool_exits_zero(self):
         for output in (
@@ -220,13 +232,16 @@ class RepositoryTests(unittest.TestCase):
             self.repo.namcap("PKGBUILD", self.recipe)
         run.assert_called_once()
 
-    def test_just_commands_use_the_shared_dispatcher(self):
+    def test_just_commands_use_containers_without_legacy_aliases(self):
         self.assertFalse((ROOT / "Makefile").exists())
         text = (ROOT / "justfile").read_text()
         self.assertIn("set positional-arguments", text)
-        for command in ("build", "install", "chroot", "package-lint"):
+        for command in ("build", "test", "srcinfo", "discover"):
             self.assertIn(f"{command} package:", text)
-            self.assertIn(f'python support/repo.py {command} "$1"', text)
+            self.assertIn(f'python -B -m support.containers {command} "$1"', text)
+        self.assertIn('install package:\n    python -B -m support.install "$1"', text)
+        for command in ("chroot", "package-lint", "container-check", "container-build"):
+            self.assertNotIn(f"\n{command}", text)
 
     def test_test_command_discovers_generic_and_recipe_local_suites(self):
         (self.recipe / "tests").mkdir()
@@ -257,28 +272,10 @@ class RepositoryTests(unittest.TestCase):
 
 class RecipeContractTests(unittest.TestCase):
     def test_recipe_contracts_and_local_integrity(self):
-        recipes = sorted((ROOT / "packages").glob("*/PKGBUILD"))
-        self.assertTrue(recipes)
-        for recipe in recipes:
-            with self.subTest(recipe=recipe.parent.name):
-                self.assertTrue(recipe.parent.name.endswith("-local"))
-                fields = {}
-                for line in (recipe.parent / ".SRCINFO").read_text().splitlines():
-                    key, separator, value = line.strip().partition(" = ")
-                    if separator:
-                        fields.setdefault(key, []).append(value)
-                self.assertEqual(fields["pkgname"], [recipe.parent.name])
-                sources = fields["source"]
-                checksums = fields["sha256sums"]
-                self.assertEqual(len(sources), len(checksums))
-                for source, checksum in zip(sources, checksums, strict=True):
-                    self.assertRegex(checksum, r"^[a-f0-9]{64}$")
-                    if "://" not in source:
-                        self.assertEqual(
-                            hashlib.sha256((recipe.parent / source).read_bytes()).hexdigest(),
-                            checksum,
-                        )
-                text = recipe.read_text()
+        for directory in select(ROOT):
+            with self.subTest(recipe=directory.name):
+                validate_integrity(directory)
+                text = (directory / "PKGBUILD").read_text()
                 self.assertNotIn("../../support", text)
                 self.assertIn("check()", text)
 

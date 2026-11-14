@@ -9,6 +9,11 @@ import sys
 import tomllib
 from pathlib import Path
 
+from support.artifacts import read_manifest
+from support.diagnostics import print_error
+from support.discovery import scan_sources, write_report
+from support.recipes import select, validate_integrity
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -19,22 +24,6 @@ def run(*args, cwd=ROOT, capture=False):
     return subprocess.run(
         list(map(str, args)), cwd=cwd, check=True, text=True, capture_output=capture
     ).stdout
-
-
-def recipes():
-    found = sorted((ROOT / "packages").glob("*/PKGBUILD"))
-    if not found:
-        raise RuntimeError("No recipes found")
-    return [file.parent for file in found]
-
-
-def select_package(name):
-    directories = recipes()
-    matches = [directory for directory in directories if directory.name == name]
-    if len(matches) != 1:
-        choices = ", ".join(directory.name for directory in directories)
-        raise RuntimeError(f"Unknown recipe {name!r}; choose one of: {choices}")
-    return matches[0]
 
 
 def namcap(target, cwd):
@@ -89,22 +78,21 @@ def namcap(target, cwd):
         print(f"Reviewed archive-lint exception: {diagnostic}\n  Reason: {reason}")
 
 
-def metadata(directory, write=False):
+def metadata(directory):
     actual = run("makepkg", "--printsrcinfo", cwd=directory, capture=True)
     target = directory / ".SRCINFO"
-    if write:
-        target.write_text(actual)
-    elif not target.exists() or target.read_text() != actual:
-        raise RuntimeError(f"Stale {target.relative_to(ROOT)}; run just srcinfo")
+    if not target.exists() or target.read_text() != actual:
+        raise RuntimeError(f"Stale {target.relative_to(ROOT)}; run just srcinfo {directory.name}")
 
 
-def lint():
+def lint(package=None):
+    directories = select(ROOT, package)
     run("just", "--fmt", "--check")
     run("ruff", "check", ".")
     run("ruff", "format", "--check", ".")
     files = [
         file
-        for folder in (ROOT / "support", ROOT / "tests", *recipes())
+        for folder in (ROOT / "support", ROOT / "tests", *directories)
         for file in folder.rglob("*")
         if file.is_file()
         and not {"src", "pkg", "__pycache__"}.intersection(file.relative_to(folder).parts)
@@ -141,14 +129,15 @@ def lint():
     ]
     run("codespell", *spelling_files)
     run("typos", *spelling_files)
-    for directory in recipes():
+    for directory in directories:
         metadata(directory)
+        validate_integrity(directory)
         namcap("PKGBUILD", directory)
 
 
-def test():
+def test(package=None):
     # Separate processes keep identically named recipe test modules isolated.
-    for directory in (ROOT, *recipes()):
+    for directory in (ROOT, *select(ROOT, package)):
         tests = directory / "tests"
         if directory == ROOT or tests.is_dir():
             run(sys.executable, "-B", "-m", "unittest", "discover", "-s", tests, "-v")
@@ -157,40 +146,45 @@ def test():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command",
-        choices=["lint", "test", "verify", "srcinfo", "build", "install", "chroot", "package-lint"],
+        "command", choices=["check", "lint", "test", "verify", "discover", "package-lint"]
     )
-    parser.add_argument("package", nargs="?", default="")
+    parser.add_argument("package", nargs="?")
+    parser.add_argument("--archives", type=Path)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    if args.command == "lint":
-        lint()
+    if args.command == "check":
+        lint(args.package)
+        test(args.package)
+    elif args.command == "lint":
+        lint(args.package)
     elif args.command == "test":
-        test()
-    elif args.command in {"verify", "srcinfo"}:
-        for directory in recipes():
-            if args.command == "verify":
-                run("makepkg", "--verifysource", cwd=directory)
-            else:
-                metadata(directory, write=True)
+        test(args.package)
+    elif args.command == "verify":
+        for directory in select(ROOT, args.package):
+            metadata(directory)
+            validate_integrity(directory)
+            run("makepkg", "--verifysource", cwd=directory)
+    elif args.command == "discover":
+        if not args.package or args.output is None:
+            parser.error("discover requires a package and --output directory")
+        directory = select(ROOT, args.package)[0]
+        metadata(directory)
+        validate_integrity(directory)
+        # makepkg verifies and extracts sources, but never calls prepare/build/check/package.
+        # The PKGBUILD itself is trusted recipe code and still evaluated as the builder.
+        run("makepkg", "--nobuild", "--noprepare", "--nodeps", cwd=directory)
+        write_report(scan_sources(directory / "src"), args.output, args.package)
     else:
-        directory = select_package(args.package)
-        if args.command in {"build", "install"}:
-            # Only an explicit install may change host packages; keep pacman prompts.
-            flags = ["--syncdeps", "--install"] if args.command == "install" else []
-            run("makepkg", "--cleanbuild", "--log", *flags, cwd=directory)
-        elif args.command == "chroot":
-            run("extra-x86_64-build", cwd=directory)
-        else:
-            paths = run("makepkg", "--packagelist", cwd=directory, capture=True).splitlines()
-            for path in paths:
-                if not Path(path).is_file():
-                    raise RuntimeError(f"Build first: {path}")
-                namcap(path, directory)
+        if not args.package or args.archives is None:
+            parser.error("package-lint requires a package and --archives directory")
+        directory = select(ROOT, args.package)[0]
+        for name in read_manifest(args.archives):
+            namcap(args.archives / name, directory)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (RuntimeError, subprocess.CalledProcessError) as error:
-        print(f"error: {error}", file=sys.stderr)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print_error(error)
         sys.exit(1)
