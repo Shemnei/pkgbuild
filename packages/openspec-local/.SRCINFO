@@ -1,0 +1,38 @@
+pkgbase = openspec-local
+	pkgdesc = Spec-driven development CLI without telemetry or self-updates
+	pkgver = 2.0.0
+	pkgrel = 1
+	url = https://github.com/Fission-AI/OpenSpec
+	arch = any
+	license = MIT
+	checkdepends = bash
+	checkdepends = zsh
+	checkdepends = fish
+	checkdepends = git
+	checkdepends = npm
+	makedepends = pnpm>=10.34.5
+	makedepends = python
+	depends = nodejs>=22.13.0
+	optdepends = git: use Git-backed specification stores
+	provides = openspec=2.0.0
+	conflicts = openspec
+	conflicts = openspec-bin
+	options = !debug
+	source = openspec-2.0.0.tar.gz::https://github.com/Fission-AI/OpenSpec/archive/refs/tags/v2.0.0.tar.gz
+	source = prepare.py
+	source = deploy.py
+	source = telemetry.ts
+	source = version-check.ts
+	source = install-standalone.ts
+	source = standalone-tip.ts
+	source = policy.test.mjs
+	sha256sums = 7d8b15d1bea7ddb1a09dc6d026eec0bd257e666e0a5922b308179178f007ee55
+	sha256sums = 3664007cd53081ee5d91bdb739310a658b4731f245dd64f35c4d8aaeffdb1c9f
+	sha256sums = 22e4dbd7c56a1b5a9838aa25ff22f80223dab388b8110697c60ed1a295640373
+	sha256sums = 055ab9d997725ba981ebd84e9c9dd5ff50cdcc1ed03c6f3a911d685c333d92ec
+	sha256sums = 96ed8ef05ced1e8a2f13d26394c5e5b2ddaf21dd38bee4339f4a707f624b0798
+	sha256sums = 75549002b4a670319aa22541a117a0ba49566d83b69df42d3fa1d755fdff5758
+	sha256sums = 47d037da56b4400117f7780f6f24914388a85387eb118e9d59bd683ca44d016c
+	sha256sums = 7fef78dbaa8bb27d9fede2fa127e3873a2a68740204fa57feda4728d6c283db3
+
+pkgname = openspec-local

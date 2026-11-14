@@ -1,0 +1,90 @@
+# Maintainer: Local package maintainers
+# shellcheck disable=SC2034,SC2154
+
+pkgname=openspec-local
+pkgver=2.0.0
+pkgrel=1
+pkgdesc='Spec-driven development CLI without telemetry or self-updates'
+arch=('any')
+url='https://github.com/Fission-AI/OpenSpec'
+license=('MIT')
+depends=('nodejs>=22.13.0')
+makedepends=('pnpm>=10.34.5' 'python')
+checkdepends=('bash' 'zsh' 'fish' 'git' 'npm')
+optdepends=('git: use Git-backed specification stores')
+provides=("openspec=$pkgver")
+conflicts=('openspec' 'openspec-bin')
+# Keep all package names local, including makepkg's predicted archive list.
+options=('!debug')
+source=(
+  "openspec-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+  'prepare.py'
+  'deploy.py'
+  'telemetry.ts'
+  'version-check.ts'
+  'install-standalone.ts'
+  'standalone-tip.ts'
+  'policy.test.mjs'
+)
+sha256sums=('7d8b15d1bea7ddb1a09dc6d026eec0bd257e666e0a5922b308179178f007ee55'
+  '3664007cd53081ee5d91bdb739310a658b4731f245dd64f35c4d8aaeffdb1c9f'
+  '22e4dbd7c56a1b5a9838aa25ff22f80223dab388b8110697c60ed1a295640373'
+  '055ab9d997725ba981ebd84e9c9dd5ff50cdcc1ed03c6f3a911d685c333d92ec'
+  '96ed8ef05ced1e8a2f13d26394c5e5b2ddaf21dd38bee4339f4a707f624b0798'
+  '75549002b4a670319aa22541a117a0ba49566d83b69df42d3fa1d755fdff5758'
+  '47d037da56b4400117f7780f6f24914388a85387eb118e9d59bd683ca44d016c'
+  '7fef78dbaa8bb27d9fede2fa127e3873a2a68740204fa57feda4728d6c283db3')
+
+prepare() {
+  export PATH="/usr/bin:$PATH"
+  export CI=true
+  cd "$srcdir/OpenSpec-$pkgver" || return
+  python "$srcdir/prepare.py" "$PWD"
+  pnpm install --frozen-lockfile --ignore-scripts
+}
+
+build() {
+  export PATH="/usr/bin:$PATH"
+  export CI=true
+  cd "$srcdir/OpenSpec-$pkgver" || return
+  node build.js
+  python "$srcdir/deploy.py" "$PWD" "$srcdir/staged"
+  install -dm700 "$srcdir/integration-home"
+  install -dm755 "$srcdir/integration"
+  local _shell
+  for _shell in bash zsh fish; do
+    env -i PATH=/usr/bin:/bin HOME="$srcdir/integration-home" LANG=C.UTF-8 NO_COLOR=1 \
+      node "$srcdir/staged/bin/openspec.js" completion generate "$_shell" >"$srcdir/integration/openspec.$_shell"
+  done
+}
+
+check() {
+  export PATH="/usr/bin:$PATH"
+  export CI=true
+  cd "$srcdir/OpenSpec-$pkgver" || return
+  node node_modules/eslint/bin/eslint.js src/
+  # The replaced upstream reporting/installer contracts are tested by policy.test.mjs.
+  # Upstream's offline Git-file fixture explicitly tests its reviewed build.js hook.
+  OPENSPEC_RELEASE_UPGRADES=0 npm_config_allow_git=true node node_modules/vitest/vitest.mjs run \
+    --exclude test/telemetry/index.test.ts \
+    --exclude test/core/version-check.test.ts \
+    --exclude test/core/standalone-tip.test.ts \
+    --exclude test/commands/install-standalone.test.ts \
+    --testNamePattern '^(?!.*(?:openspec CLI e2e basics.*version command|an [^ ]+ global config.*telemetry|an [^ ]+ global config.*is left byte-identical by a read-only CLI command))'
+  OPENSPEC_STAGED="$srcdir/staged" node --test "$srcdir/policy.test.mjs"
+  bash -n "$srcdir/integration/openspec.bash"
+  zsh -n "$srcdir/integration/openspec.zsh"
+  fish -n "$srcdir/integration/openspec.fish"
+}
+
+package() {
+  install -dm755 "$pkgdir/usr/lib/openspec"
+  cp -a "$srcdir/staged/." "$pkgdir/usr/lib/openspec/"
+  install -dm755 "$pkgdir/usr/bin"
+  ln -s ../lib/openspec/bin/openspec.js "$pkgdir/usr/bin/openspec"
+  install -Dm644 "$srcdir/OpenSpec-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$srcdir/OpenSpec-$pkgver/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$srcdir/integration/openspec.bash" "$pkgdir/usr/share/bash-completion/completions/openspec"
+  install -Dm644 "$srcdir/integration/openspec.zsh" "$pkgdir/usr/share/zsh/site-functions/_openspec"
+  install -Dm644 "$srcdir/integration/openspec.fish" "$pkgdir/usr/share/fish/vendor_completions.d/openspec.fish"
+}
