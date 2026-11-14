@@ -21,7 +21,7 @@ def create(root, name):
     destination = parent / name
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Refusing to overwrite {destination}")
-    with tempfile.TemporaryDirectory(prefix="pkgconf-new-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="pkgbuild-new-") as temporary:
         staged = Path(temporary) / name
         shutil.copytree(TEMPLATE, staged)
         for path in staged.rglob("*"):

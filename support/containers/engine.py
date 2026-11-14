@@ -95,7 +95,7 @@ class Engine:
                 f"ARCH_SNAPSHOT={lock['arch_snapshot'].replace('-', '/')}",
             ]
             # Send only reviewed image inputs, not the repository or host caches.
-            with tempfile.TemporaryDirectory(prefix="pkgconf-image-") as temporary:
+            with tempfile.TemporaryDirectory(prefix="pkgbuild-image-") as temporary:
                 for name, path in inputs.items():
                     shutil.copyfile(path, Path(temporary) / name)
                 status = logged(
