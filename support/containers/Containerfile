@@ -17,7 +17,7 @@ COPY recipes.py artifacts.py diagnostics.py /opt/pkgbuild/support/
 COPY __init__.py worker.py /opt/pkgbuild/support/containers/
 
 FROM base AS tools
-RUN setpriv --no-new-privs pacman -S --needed --noconfirm base-devel just ruff shellcheck shfmt namcap nodejs codespell typos desktop-file-utils \
+RUN setpriv --no-new-privs pacman -S --needed --noconfirm base-devel just ruff shellcheck shfmt namcap nodejs codespell typos desktop-file-utils actionlint git \
     && pacman -Scc --noconfirm
 COPY recipes.py artifacts.py diagnostics.py /opt/pkgbuild/support/
 COPY __init__.py worker.py /opt/pkgbuild/support/containers/

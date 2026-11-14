@@ -1,0 +1,177 @@
+name: Validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONTAINER_ENGINE: docker
+
+jobs:
+  select:
+    name: Select packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      packages: ${{ steps.select.outputs.packages }}
+      framework: ${{ steps.select.outputs.framework }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Select changed packages and reverse dependents
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            python -B -m support.ci --base "$BASE" --head "$HEAD" --pull-request
+          elif [[ "$EVENT" == push ]]; then
+            python -B -m support.ci --base "$BASE" --head "$HEAD"
+          else
+            python -B -m support.ci
+          fi
+
+  check:
+    name: Repository checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: '1.40.0'
+      - run: just check
+      - name: Preserve validation evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: repository-checks
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            .artifacts/**/report.json
+            .artifacts/**/sources.json
+            .artifacts/**/*.log
+
+  packages:
+    name: Package (${{ matrix.package }})
+    needs: select
+    if: needs.select.outputs.packages != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        package: ${{ fromJSON(needs.select.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: '1.40.0'
+      - name: Verify declared sources
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: just verify "$PACKAGE"
+      - name: Build, lint archives, and test installed packages
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: just test "$PACKAGE"
+      - name: Preserve validation evidence (not package binaries)
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: package-${{ matrix.package }}
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            .artifacts/**/report.json
+            .artifacts/**/sources.json
+            .artifacts/**/artifacts.json
+            .artifacts/**/*.log
+
+  framework:
+    name: Container framework smoke test
+    needs: select
+    if: needs.select.outputs.framework == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - run: python -B -m tests.container_smoke
+      - name: Preserve framework evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: framework-smoke
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            .artifacts/**/report.json
+            .artifacts/**/sources.json
+            .artifacts/**/artifacts.json
+            .artifacts/**/discovery.json
+            .artifacts/**/discovery.txt
+            .artifacts/**/*.log
+
+  result:
+    name: CI result
+    if: always()
+    needs: [select, check, packages, framework]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all applicable checks
+        env:
+          SELECT: ${{ needs.select.result }}
+          CHECK: ${{ needs.check.result }}
+          PACKAGES: ${{ needs.packages.result }}
+          FRAMEWORK: ${{ needs.framework.result }}
+          TARGETS: ${{ needs.select.outputs.packages }}
+          SMOKE: ${{ needs.select.outputs.framework }}
+        run: |
+          [[ "$SELECT" == success && "$CHECK" == success ]]
+          if [[ "$TARGETS" == '[]' ]]; then
+            [[ "$PACKAGES" == skipped ]]
+          else
+            [[ "$PACKAGES" == success ]]
+          fi
+          if [[ "$SMOKE" == true ]]; then
+            [[ "$FRAMEWORK" == success ]]
+          else
+            [[ "$FRAMEWORK" == skipped ]]
+          fi

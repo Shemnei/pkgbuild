@@ -68,6 +68,38 @@ or disappeared findings fail. Archive exceptions never apply to PKGBUILD lint.
 See [the framework guide](support/containers/README.md) for input contracts,
 local dependency providers, test dependencies, security boundaries, and images.
 
+## Continuous integration
+
+[Validation](.github/workflows/validation.yml) runs on pull requests and pushes
+to `main`. It runs `just check` for the whole repository, then `just verify` and
+`just test` for changed recipes and their transitive local dependents. Shared
+changes select every recipe and the real-engine framework smoke test. Manual
+dispatch runs the full suite. Configure branch protection to require **CI result**;
+it checks that every applicable job succeeded, including dynamically selected jobs.
+
+Jobs use ephemeral GitHub-hosted Linux runners and Docker with the same sandbox
+requirements as local validation. Docker is rootful on these disposable runners;
+untrusted PR jobs have read-only repository permission, no supplied secrets, and
+no persisted checkout credentials. Actions are pinned to commits. Validation
+uploads reports, manifests, and logs even on failure, but not package binaries.
+These checks supplement the release gates below; they do not certify a release.
+
+[Upstream releases](.github/workflows/upstream.yml) checks weekly and supports
+manual dispatch with a default dry run. It reads each recipe's committed `.SRCINFO`
+GitHub repository URL and compares its packaged version with GitHub's latest
+stable release. It supports numeric dotted versions with an optional `v` prefix
+and build metadata; unsupported versions, unavailable releases, and API failures
+fail the run rather than being treated as current. It watches application releases,
+not every bundled dependency or unpublished tag.
+
+Newer releases create an issue containing the release link and packaging/audit
+checklist, assigned to the repository owner. Set the repository Actions variable
+`UPSTREAM_ISSUE_ASSIGNEE` to override the assignee (required for organization-owned
+forks). Open and closed issues suppress duplicate package/version notifications;
+closing an issue deliberately acknowledges that release. The watcher only runs
+from the default branch, has issue-write but not content-write permission, and
+never evaluates PKGBUILDs, changes recipes, or builds packages.
+
 ## Installing and release validation
 
 Container commands never install software on the host. For a local build and

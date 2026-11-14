@@ -90,6 +90,11 @@ def lint(package=None):
     run("just", "--fmt", "--check")
     run("ruff", "check", ".")
     run("ruff", "format", "--check", ".")
+    workflows = sorted((ROOT / ".github" / "workflows").glob("*.yml")) + sorted(
+        (ROOT / ".github" / "workflows").glob("*.yaml")
+    )
+    if workflows:
+        run("actionlint", *workflows)
     files = [
         file
         for folder in (ROOT / "support", ROOT / "tests", *directories)

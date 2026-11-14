@@ -49,6 +49,8 @@ def snapshot(root, destination, packages=None, *, include_sources=True, extra_in
         add(root / name)
     for name in ("support", "tests"):
         add(root / name)
+    if (root / ".github").exists() or (root / ".github").is_symlink():
+        add(root / ".github")
     for path in extra_inputs:
         add(path)
     directories = select(root) if packages is None else [select(root, name)[0] for name in packages]
